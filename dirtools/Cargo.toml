@@ -1,0 +1,26 @@
+[package]
+name = "mdir"
+version = "0.1.0"
+edition = "2021"
+authors = ["mdir contributors"]
+description = "A vi-style terminal file manager inspired by MDIR"
+license = "MIT"
+
+[dependencies]
+ratatui = "0.30"
+crossterm = "0.29"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+walkdir = "2"
+trash = "5"
+chrono = "0.4"
+clap = { version = "4", features = ["derive"] }
+dirs = "6"
+thiserror = "2"
+tracing = "0.1"
+tracing-appender = "0.2"
+unicode-width = "0.2"
+open = "5"
+
+[dev-dependencies]
+tempfile = "3"
