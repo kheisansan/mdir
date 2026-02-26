@@ -239,6 +239,8 @@ pub struct App {
     pub last_click: Option<(u16, u16, Instant)>,
     /// ファイル検索状態（`:find` コマンドの結果）
     pub find_state: Option<FindState>,
+    /// 自動リフレッシュ用タイマー
+    last_auto_refresh: Instant,
 }
 
 impl App {
@@ -271,6 +273,7 @@ impl App {
             terminal_size: (80, 24),
             last_click: None,
             find_state: None,
+            last_auto_refresh: Instant::now(),
         })
     }
 
@@ -318,6 +321,28 @@ impl App {
     /// メッセージを表示
     fn show_message(&mut self, text: String, level: MessageLevel) {
         self.message = Some(TimedMessage::new(text, level));
+    }
+
+    /// 外部変更の自動検出＆リフレッシュ（2秒間隔）
+    ///
+    /// 別のターミナルや Finder で行われたファイル操作やブランチ変更を
+    /// ディレクトリ・.git/HEAD の mtime 比較で検出し、自動反映する。
+    pub fn check_external_changes(&mut self) {
+        const AUTO_REFRESH_INTERVAL_SECS: u64 = 2;
+
+        if self.last_auto_refresh.elapsed().as_secs() < AUTO_REFRESH_INTERVAL_SECS {
+            return;
+        }
+        self.last_auto_refresh = Instant::now();
+
+        if matches!(self.mode, AppMode::Normal) {
+            if self.left_pane.has_external_changes() {
+                let _ = self.left_pane.refresh();
+            }
+            if self.right_pane.has_external_changes() {
+                let _ = self.right_pane.refresh();
+            }
+        }
     }
 
     // -----------------------------------------------------------------------

@@ -1,14 +1,21 @@
 # Rust / Cargo
-/target/
+target/
 **/*.rs.bk
+*.pdb
 
 # macOS
 .DS_Store
+**/.DS_Store
 .AppleDouble
 .LSOverride
 ._*
 
-# IDE
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE / Editor
 .idea/
 .vscode/
 *.swp

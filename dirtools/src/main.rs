@@ -161,6 +161,9 @@ fn run_main_loop(
         // 期限切れメッセージ削除
         app.cleanup_expired_messages();
 
+        // 外部変更の自動検出＆リフレッシュ
+        app.check_external_changes();
+
         // 終了判定
         if app.should_quit {
             break;

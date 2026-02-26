@@ -11,6 +11,7 @@ use crate::error::AppError;
 use entry::{FileEntry, SortOrder};
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::time::SystemTime;
 
 /// 1つのファイルペインの状態
 pub struct PaneState {
@@ -30,6 +31,10 @@ pub struct PaneState {
     pub show_hidden: bool,
     /// Git ブランチ名キャッシュ（None = Git リポジトリではない）
     pub git_branch: Option<String>,
+    /// ディレクトリの最終更新時刻（自動リフレッシュ用）
+    dir_mtime: Option<SystemTime>,
+    /// .git/HEAD の最終更新時刻（ブランチ変更検出用）
+    git_head_mtime: Option<SystemTime>,
 }
 
 impl PaneState {
@@ -51,6 +56,8 @@ impl PaneState {
             sort_order: SortOrder::default(),
             show_hidden,
             git_branch,
+            dir_mtime: None,
+            git_head_mtime: None,
         };
         state.refresh()?;
         Ok(state)
@@ -93,7 +100,54 @@ impl PaneState {
         // カーソル位置の補正（エントリ数が減った場合に範囲外にならないように）
         self.clamp_cursor();
 
+        self.update_mtime_cache();
+
         Ok(())
+    }
+
+    /// ディレクトリ・Git HEAD の mtime をキャッシュに保存
+    fn update_mtime_cache(&mut self) {
+        self.dir_mtime = std::fs::metadata(&self.current_dir)
+            .and_then(|m| m.modified())
+            .ok();
+        self.git_head_mtime = self.git_head_path().and_then(|p| {
+            std::fs::metadata(p).and_then(|m| m.modified()).ok()
+        });
+    }
+
+    /// .git/HEAD のパスを取得（Git リポジトリの場合のみ）
+    fn git_head_path(&self) -> Option<PathBuf> {
+        let mut dir = self.current_dir.clone();
+        loop {
+            let head = dir.join(".git").join("HEAD");
+            if head.exists() {
+                return Some(head);
+            }
+            if !dir.pop() {
+                return None;
+            }
+        }
+    }
+
+    /// ディレクトリまたは Git HEAD が前回の refresh 以降に変更されたかを検出
+    pub fn has_external_changes(&self) -> bool {
+        let dir_changed = match self.dir_mtime {
+            Some(cached) => std::fs::metadata(&self.current_dir)
+                .and_then(|m| m.modified())
+                .map(|current| current != cached)
+                .unwrap_or(false),
+            None => false,
+        };
+
+        let git_changed = match (&self.git_head_mtime, self.git_head_path()) {
+            (Some(cached), Some(path)) => std::fs::metadata(path)
+                .and_then(|m| m.modified())
+                .map(|current| current != *cached)
+                .unwrap_or(false),
+            _ => false,
+        };
+
+        dir_changed || git_changed
     }
 
     /// カーソルを delta だけ移動（範囲内にクランプ）
