@@ -17,8 +17,8 @@ pub struct ParsedCommand {
 pub enum ParseResult {
     /// ビルトインコマンド
     Builtin(ParsedCommand),
-    /// シェルコマンド (:! プレフィックス)
-    Shell(String),
+    // /// シェルコマンド (:! プレフィックス)
+    // Shell(String),
     /// 空入力
     Empty,
 }
@@ -37,10 +37,10 @@ pub fn parse(input: &str) -> ParseResult {
         return ParseResult::Empty;
     }
 
-    // シェルコマンド判定 (:! で始まる)
-    if let Some(shell_cmd) = trimmed.strip_prefix('!') {
-        return ParseResult::Shell(shell_cmd.trim().to_string());
-    }
+    // // シェルコマンド判定 (:! で始まる)
+    // if let Some(shell_cmd) = trimmed.strip_prefix('!') {
+    //     return ParseResult::Shell(shell_cmd.trim().to_string());
+    // }
 
     // スペース区切りでトークン分割
     let tokens: Vec<&str> = trimmed.split_whitespace().collect();
@@ -97,13 +97,13 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_parse_shell_command() {
-        match parse("!ls -la") {
-            ParseResult::Shell(cmd) => assert_eq!(cmd, "ls -la"),
-            _ => panic!("Expected Shell"),
-        }
-    }
+    // #[test]
+    // fn test_parse_shell_command() {
+    //     match parse("!ls -la") {
+    //         ParseResult::Shell(cmd) => assert_eq!(cmd, "ls -la"),
+    //         _ => panic!("Expected Shell"),
+    //     }
+    // }
 
     #[test]
     fn test_parse_case_insensitive() {

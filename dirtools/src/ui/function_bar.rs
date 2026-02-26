@@ -16,7 +16,6 @@ const BUTTONS: &[(&str, &str)] = &[
     ("F5/c", "コピー"),
     ("F6/m", "移動"),
     ("F8/d", "削除"),
-    (":", "コマンド"),
     (":help", "ヘルプ"),
     ("q/Esc", "終了"),
 ];
@@ -30,6 +29,8 @@ const FIND_BUTTONS: &[(&str, &str)] = &[
 /// Git リポジトリ内の場合に追加表示するボタン
 const GIT_BUTTONS: &[(&str, &str)] = &[
     ("y", "Git Pull"),
+    ("u", "Git Checkout"),
+    ("b", "Branch"),
 ];
 
 /// ファンクションバーを描画

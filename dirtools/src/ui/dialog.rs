@@ -31,6 +31,13 @@ pub fn render(frame: &mut Frame, area: Rect, dialog: &DialogState) {
             ..
         } => render_input(frame, area, title, value, *cursor_pos),
         DialogState::Message { title, content } => render_message(frame, area, title, content),
+        DialogState::BranchList {
+            branches,
+            filter_string,
+            search_input,
+            cursor,
+            scroll_offset,
+        } => render_branch_list(frame, area, branches, filter_string, search_input, *cursor, *scroll_offset),
     }
 }
 
@@ -244,6 +251,125 @@ fn render_message(
         inner.width,
         1,
     );
+    frame.render_widget(
+        Paragraph::new(hints).alignment(Alignment::Center),
+        hint_area,
+    );
+}
+
+/// ブランチリストをキーワードでフィルタ（表示用・大文字小文字無視）
+fn filter_branches_display(
+    branches: &[(String, bool, String)],
+    filter: &str,
+) -> Vec<(String, bool, String)> {
+    if filter.trim().is_empty() {
+        return branches.to_vec();
+    }
+    let f = filter.to_lowercase();
+    branches
+        .iter()
+        .filter(|(display, _, _)| display.to_lowercase().contains(&f))
+        .cloned()
+        .collect()
+}
+
+/// ブランチリストダイアログ描画
+fn render_branch_list(
+    frame: &mut Frame,
+    area: Rect,
+    branches: &[(String, bool, String)],
+    filter_string: &str,
+    search_input: &Option<String>,
+    cursor: usize,
+    scroll_offset: usize,
+) {
+    let filtered = filter_branches_display(branches, filter_string);
+    // ターミナル横幅の75％をダイアログ幅に（最低幅は確保）
+    let dialog_width = (area.width * 3 / 4).max(40).min(area.width.saturating_sub(4));
+
+    let has_search_bar = search_input.is_some();
+    let list_height = filtered.len().min(20) as u16;
+    let extra = if has_search_bar { 1 } else { 0 };
+    let dialog_height = (list_height + 4 + extra).min(area.height.saturating_sub(4));
+    let dialog_area = centered_rect(dialog_width, dialog_height, area);
+
+    frame.render_widget(Clear, dialog_area);
+
+    let title = if filter_string.is_empty() {
+        format!(" Git Branch -a ({}) ", branches.len())
+    } else {
+        format!(" Git Branch ({}/{} 件) ", filtered.len(), branches.len())
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .title_style(theme::dialog_title_style())
+        .border_style(theme::border_style(true));
+    let inner = block.inner(dialog_area);
+    frame.render_widget(block, dialog_area);
+
+    let mut row_y = inner.y;
+
+    // 検索バー（search_input が Some のとき）
+    if let Some(ref query) = search_input {
+        let search_line = Line::from(vec![
+            Span::styled("/ ", theme::function_key_style()),
+            Span::styled(query.as_str(), Style::default().fg(theme::FG)),
+        ]);
+        let search_area = Rect::new(inner.x + 1, row_y, inner.width.saturating_sub(2), 1);
+        frame.render_widget(Paragraph::new(search_line), search_area);
+        row_y += 1;
+    }
+
+    let visible_rows = (inner.y + inner.height.saturating_sub(2)).saturating_sub(row_y) as usize;
+    let effective_scroll = scroll_offset.min(filtered.len().saturating_sub(visible_rows));
+    let end = (effective_scroll + visible_rows).min(filtered.len());
+
+    for (i, (name, is_current, _)) in filtered[effective_scroll..end].iter().enumerate() {
+        let list_idx = effective_scroll + i;
+        let is_selected = list_idx == cursor;
+
+        let prefix = if *is_current { "* " } else { "  " };
+
+        let style = if is_selected && *is_current {
+            Style::default().fg(theme::GREEN).bg(theme::BG_SELECTED).add_modifier(Modifier::BOLD)
+        } else if is_selected {
+            Style::default().fg(theme::FG).bg(theme::BG_SELECTED).add_modifier(Modifier::BOLD)
+        } else if *is_current {
+            Style::default().fg(theme::GREEN).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme::FG)
+        };
+
+        let line = Line::from(Span::styled(
+            format!("{}{}", prefix, name),
+            style,
+        ));
+        let row_area = Rect::new(inner.x + 1, row_y + i as u16, inner.width.saturating_sub(2), 1);
+        frame.render_widget(Paragraph::new(line), row_area);
+    }
+
+    // フッターヒント
+    let hints = if search_input.is_some() {
+        Line::from(vec![
+            Span::styled(" Enter", theme::function_key_style()),
+            Span::styled("検索適用 ", theme::function_bar_style()),
+            Span::styled(" Esc", theme::function_key_style()),
+            Span::styled("キャンセル", theme::function_bar_style()),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled(" /", theme::function_key_style()),
+            Span::styled("検索 ", theme::function_bar_style()),
+            Span::styled(" j/k", theme::function_key_style()),
+            Span::styled("選択 ", theme::function_bar_style()),
+            Span::styled(" Enter", theme::function_key_style()),
+            Span::styled("チェックアウト ", theme::function_bar_style()),
+            Span::styled(" Esc", theme::function_key_style()),
+            Span::styled("閉じる", theme::function_bar_style()),
+        ])
+    };
+    let hint_area = Rect::new(inner.x, inner.y + inner.height.saturating_sub(1), inner.width, 1);
     frame.render_widget(
         Paragraph::new(hints).alignment(Alignment::Center),
         hint_area,

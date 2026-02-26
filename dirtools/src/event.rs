@@ -82,6 +82,8 @@ fn kana_to_normal_action(c: char) -> Option<Action> {
 
         // --- Git ---
         'ん' => Action::GitPull,                    // y (かな: ん)
+        'な' => Action::GitCheckout,                // u (かな: な)
+        'こ' => Action::GitBranchList,              // b (かな: こ)
 
         // --- 検索結果ナビゲーション ---
         'ら' => Action::FindPrev,                   // o (かな: ら)
@@ -169,6 +171,8 @@ fn handle_normal_key(key: KeyEvent) -> Result<Action, AppError> {
         KeyCode::Char('t') | KeyCode::F(4) => Action::RequestCreateFile,
         KeyCode::Char('x') => Action::RequestChmod,
         KeyCode::Char('y') => Action::GitPull,
+        KeyCode::Char('u') => Action::GitCheckout,
+        KeyCode::Char('b') => Action::GitBranchList,
 
         // === マーキング ===
         KeyCode::Char(' ') | KeyCode::Insert => Action::ToggleMark,
@@ -269,6 +273,30 @@ fn handle_dialog_key(key: KeyEvent, app: &App) -> Result<Action, AppError> {
             KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => Action::DialogCancel,
             _ => Action::Noop,
         },
+        Some(DialogState::BranchList { search_input, .. }) => {
+            if search_input.is_some() {
+                match key.code {
+                    KeyCode::Enter => Action::BranchListSearchEnter,
+                    KeyCode::Esc => Action::BranchListSearchCancel,
+                    KeyCode::Backspace => Action::BranchListSearchBackspace,
+                    KeyCode::Char(c) => Action::BranchListSearchInput(c),
+                    _ => Action::Noop,
+                }
+            } else {
+                match key.code {
+                    KeyCode::Char('/') => Action::BranchListStartSearch,
+                    KeyCode::Char('j') | KeyCode::Down => Action::BranchListMoveCursor(1),
+                    KeyCode::Char('k') | KeyCode::Up => Action::BranchListMoveCursor(-1),
+                    KeyCode::Char('g') | KeyCode::Home => Action::BranchListMoveCursor(i32::MIN / 2),
+                    KeyCode::Char('G') | KeyCode::End => Action::BranchListMoveCursor(i32::MAX / 2),
+                    KeyCode::PageDown => Action::BranchListMoveCursor(10),
+                    KeyCode::PageUp => Action::BranchListMoveCursor(-10),
+                    KeyCode::Enter => Action::DialogConfirm,
+                    KeyCode::Esc | KeyCode::Char('q') => Action::DialogCancel,
+                    _ => Action::Noop,
+                }
+            }
+        }
         None => Action::Noop,
     })
 }
@@ -282,12 +310,35 @@ fn handle_mouse(mouse: MouseEvent, app: &mut App) -> Result<Action, AppError> {
         return Ok(Action::DismissWelcome);
     }
 
+    // ダイアログモードでのマウスイベント特殊処理
+    if app.mode == AppMode::Dialog {
+        return Ok(match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                handle_left_click(mouse.column, mouse.row, app)
+            }
+            MouseEventKind::ScrollUp => {
+                if matches!(app.dialog, Some(DialogState::BranchList { .. })) {
+                    Action::BranchListMoveCursor(-3)
+                } else {
+                    Action::Noop
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                if matches!(app.dialog, Some(DialogState::BranchList { .. })) {
+                    Action::BranchListMoveCursor(3)
+                } else {
+                    Action::Noop
+                }
+            }
+            _ => Action::Noop,
+        });
+    }
+
     Ok(match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
             handle_left_click(mouse.column, mouse.row, app)
         }
         MouseEventKind::Down(MouseButton::Right) => {
-            // 右クリック: 将来コンテキストメニュー
             Action::Noop
         }
         MouseEventKind::ScrollUp => Action::MoveCursor(-3),
@@ -396,48 +447,41 @@ fn handle_left_click(x: u16, y: u16, app: &mut App) -> Action {
 
 /// ファンクションバーのクリック判定
 ///
-/// ボタン配置（表示カラム位置）:
-/// " [F2/r]名前変更 [F5/c]コピー [F6/m]移動 [F8/d]削除 [:]コマンド [:help]ヘルプ [q/Esc]終了 "
-///   1..16          16..29       29..40      40..51      51..63       63..77        77..89
+/// ボタン配置（表示カラム位置）: [:]コマンド 削除後
+/// " [F2/r]名前変更 [F5/c]コピー [F6/m]移動 [F8/d]削除 [:help]ヘルプ [q/Esc]終了 "
+///   1..16          16..29       29..40      40..51      51..65       65..77
 /// 検索時追加:
 ///   [o]前候補 [p]次候補
-///   89..99    99..
+///   77..87    87..
 fn handle_function_bar_click(x: u16, _w: u16, has_find: bool, has_git: bool) -> Action {
     let x = x as usize;
 
-    // 各ボタンの範囲を定義（日本語文字は表示幅2カラム）
     if (1..16).contains(&x) {
-        // [F2/r]名前変更
         Action::RequestRename
     } else if (16..29).contains(&x) {
-        // [F5/c]コピー
         Action::CopyFiles
     } else if (29..40).contains(&x) {
-        // [F6/m]移動
         Action::MoveFiles
     } else if (40..51).contains(&x) {
-        // [F8/d]削除
         Action::RequestDelete
-    } else if (51..63).contains(&x) {
-        // [:]コマンド
-        Action::EnterCommandMode
-    } else if (63..77).contains(&x) {
-        // [:help]ヘルプ
+    } else if (51..65).contains(&x) {
         Action::EnterHelp(None)
-    } else if (77..89).contains(&x) {
-        // [q/Esc]終了
+    } else if (65..77).contains(&x) {
         Action::Quit
-    } else if has_find && (89..99).contains(&x) {
-        // [o]前候補
+    } else if has_find && (77..87).contains(&x) {
         Action::FindPrev
-    } else if has_find && x >= 99 && (!has_git || x < 109) {
-        // [p]次候補
+    } else if has_find && x >= 87 && (!has_git || x < 97) {
         Action::FindNext
     } else if has_git {
-        // [y]Git Pull（検索ボタンの後ろ、または検索なしの場合89〜）
-        let git_start = if has_find { 109 } else { 89 };
-        if x >= git_start {
+        let git_start = if has_find { 97 } else { 77 };
+        let git_pull_end = git_start + 12;
+        let git_checkout_end = git_pull_end + 16;
+        if x >= git_start && x < git_pull_end {
             Action::GitPull
+        } else if x >= git_pull_end && x < git_checkout_end {
+            Action::GitCheckout
+        } else if x >= git_checkout_end {
+            Action::GitBranchList
         } else {
             Action::Noop
         }
@@ -447,29 +491,72 @@ fn handle_function_bar_click(x: u16, _w: u16, has_find: bool, has_git: bool) -> 
 }
 
 /// ダイアログ内のクリック処理
-fn handle_dialog_click(x: u16, y: u16, app: &App) -> Action {
+fn handle_dialog_click(x: u16, y: u16, app: &mut App) -> Action {
     let (w, h) = app.terminal_size;
 
-    // ダイアログ領域の推定（中央 44x7）
+    // ブランチリストダイアログの場合は専用処理
+    if let Some(DialogState::BranchList { branches, filter_string, search_input, cursor: _, scroll_offset }) = &app.dialog {
+        let filtered_len = if filter_string.trim().is_empty() {
+            branches.len()
+        } else {
+            let f = filter_string.to_lowercase();
+            branches.iter().filter(|(d, _, _)| d.to_lowercase().contains(&f)).count()
+        };
+        let dialog_width = (w * 3 / 4).max(40).min(w.saturating_sub(4));
+        let list_height = filtered_len.min(20) as u16;
+        let extra = if search_input.is_some() { 1 } else { 0 };
+        let dialog_height = (list_height + 4 + extra).min(h.saturating_sub(4));
+        let dialog_x = (w.saturating_sub(dialog_width)) / 2;
+        let dialog_y = (h.saturating_sub(dialog_height)) / 2;
+
+        if x < dialog_x || x >= dialog_x + dialog_width || y < dialog_y || y >= dialog_y + dialog_height {
+            return Action::DialogCancel;
+        }
+
+        let mut inner_y = dialog_y + 1;
+        if search_input.is_some() {
+            inner_y += 1;
+        }
+        let inner_end_y = dialog_y + dialog_height - 2;
+        if y >= inner_y && y < inner_end_y {
+            let clicked_row = (y - inner_y) as usize;
+            let clicked_idx = *scroll_offset + clicked_row;
+            if clicked_idx < filtered_len {
+                let double = is_double_click(app, x, y);
+                app.last_click = Some((x, y, Instant::now()));
+                if double {
+                    if let Some(DialogState::BranchList { cursor, .. }) = &mut app.dialog {
+                        *cursor = clicked_idx;
+                    }
+                    return Action::DialogConfirm;
+                }
+                if let Some(DialogState::BranchList { cursor, .. }) = &mut app.dialog {
+                    *cursor = clicked_idx;
+                }
+                return Action::Noop;
+            }
+        }
+        return Action::Noop;
+    }
+
+    // 通常ダイアログ（Confirm/Input/Message）
     let dialog_width = 44u16.min(w.saturating_sub(4));
     let dialog_height = 7u16;
     let dialog_x = (w.saturating_sub(dialog_width)) / 2;
     let dialog_y = (h.saturating_sub(dialog_height)) / 2;
 
-    // ダイアログ外クリック → キャンセル
     if x < dialog_x || x >= dialog_x + dialog_width || y < dialog_y || y >= dialog_y + dialog_height {
         return Action::DialogCancel;
     }
 
-    // 確認ダイアログのボタン行（ダイアログ内 y offset 4 付近）
     if let Some(DialogState::Confirm { .. }) = &app.dialog {
-        let btn_y = dialog_y + 4; // 枠(1) + 余白(1) + msg(2) = 4行目
+        let btn_y = dialog_y + 4;
         if y == btn_y {
             let center = dialog_x + dialog_width / 2;
             if x < center {
-                return Action::DialogConfirm; // Yes 側
+                return Action::DialogConfirm;
             } else {
-                return Action::DialogCancel; // No 側
+                return Action::DialogCancel;
             }
         }
     }

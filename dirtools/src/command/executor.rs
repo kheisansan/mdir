@@ -21,8 +21,8 @@ pub enum CommandAction {
     SetSort(SortCriteria),
     /// 隠しファイル表示切替
     ToggleHidden,
-    /// シェルコマンド実行
-    Shell(String),
+    // /// シェルコマンド実行
+    // Shell(String),
     /// ディレクトリ作成
     CreateDir(String),
     /// ファイル作成
@@ -37,7 +37,7 @@ pub enum CommandAction {
 pub fn execute(parse_result: &ParseResult, current_dir: &std::path::Path) -> Result<CommandAction, AppError> {
     match parse_result {
         ParseResult::Empty => Err(AppError::UnknownCommand(String::new())),
-        ParseResult::Shell(cmd) => Ok(CommandAction::Shell(cmd.clone())),
+        // ParseResult::Shell(cmd) => Ok(CommandAction::Shell(cmd.clone())),
         ParseResult::Builtin(cmd) => execute_builtin(cmd, current_dir),
     }
 }

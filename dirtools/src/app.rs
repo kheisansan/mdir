@@ -91,6 +91,14 @@ pub enum Action {
 
     // --- Git ---
     GitPull,
+    GitCheckout,
+    GitBranchList,
+    BranchListMoveCursor(i32),
+    BranchListStartSearch,
+    BranchListSearchInput(char),
+    BranchListSearchBackspace,
+    BranchListSearchEnter,
+    BranchListSearchCancel,
 
     // --- 検索 ---
     FindNext,
@@ -163,6 +171,15 @@ pub enum DialogState {
         title: String,
         content: String,
     },
+    /// ブランチリストダイアログ（git branch -a + キーワード検索）
+    BranchList {
+        /// (表示名, 現在ブランチか, checkout 引数)
+        branches: Vec<(String, bool, String)>,
+        filter_string: String,
+        search_input: Option<String>,
+        cursor: usize,
+        scroll_offset: usize,
+    },
 }
 
 /// 確認ダイアログ確定後のアクション
@@ -176,6 +193,7 @@ pub enum PendingInputAction {
     CreateDir,
     CreateFile,
     Chmod(Vec<PathBuf>),
+    GitCheckout,
 }
 
 /// ヘルプ画面の状態
@@ -221,6 +239,8 @@ pub struct App {
     pub last_click: Option<(u16, u16, Instant)>,
     /// ファイル検索状態（`:find` コマンドの結果）
     pub find_state: Option<FindState>,
+    /// 自動リフレッシュ用タイマー
+    last_auto_refresh: Instant,
 }
 
 impl App {
@@ -253,6 +273,7 @@ impl App {
             terminal_size: (80, 24),
             last_click: None,
             find_state: None,
+            last_auto_refresh: Instant::now(),
         })
     }
 
@@ -300,6 +321,28 @@ impl App {
     /// メッセージを表示
     fn show_message(&mut self, text: String, level: MessageLevel) {
         self.message = Some(TimedMessage::new(text, level));
+    }
+
+    /// 外部変更の自動検出＆リフレッシュ（2秒間隔）
+    ///
+    /// 別のターミナルや Finder で行われたファイル操作やブランチ変更を
+    /// ディレクトリ・.git/HEAD の mtime 比較で検出し、自動反映する。
+    pub fn check_external_changes(&mut self) {
+        const AUTO_REFRESH_INTERVAL_SECS: u64 = 2;
+
+        if self.last_auto_refresh.elapsed().as_secs() < AUTO_REFRESH_INTERVAL_SECS {
+            return;
+        }
+        self.last_auto_refresh = Instant::now();
+
+        if matches!(self.mode, AppMode::Normal) {
+            if self.left_pane.has_external_changes() {
+                let _ = self.left_pane.refresh();
+            }
+            if self.right_pane.has_external_changes() {
+                let _ = self.right_pane.refresh();
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -460,6 +503,63 @@ impl App {
 
             // --- Git ---
             Action::GitPull => self.handle_git_pull(),
+            Action::GitCheckout => self.handle_git_checkout_request(),
+            Action::GitBranchList => self.handle_git_branch_list(),
+            Action::BranchListMoveCursor(delta) => {
+                if let Some(DialogState::BranchList { branches, filter_string, cursor, scroll_offset, .. }) = &mut self.dialog {
+                    let filtered = Self::filter_branch_list(branches, filter_string);
+                    let len = filtered.len();
+                    let max = if len == 0 { 0 } else { len - 1 };
+                    let new_pos = (*cursor as i32 + delta).clamp(0, max as i32) as usize;
+                    *cursor = new_pos;
+                    let visible = 15usize;
+                    if *cursor < *scroll_offset {
+                        *scroll_offset = *cursor;
+                    }
+                    if *cursor >= *scroll_offset + visible {
+                        *scroll_offset = cursor.saturating_sub(visible - 1);
+                    }
+                }
+            }
+            Action::BranchListStartSearch => {
+                if let Some(DialogState::BranchList { search_input, .. }) = &mut self.dialog {
+                    *search_input = Some(String::new());
+                }
+            }
+            Action::BranchListSearchInput(c) => {
+                if let Some(DialogState::BranchList { search_input, .. }) = &mut self.dialog {
+                    if let Some(s) = search_input {
+                        s.push(c);
+                    }
+                }
+            }
+            Action::BranchListSearchBackspace => {
+                if let Some(DialogState::BranchList { search_input, .. }) = &mut self.dialog {
+                    if let Some(s) = search_input {
+                        if !s.is_empty() {
+                            let idx = s.char_indices().next_back().map(|(i, _)| i).unwrap_or(0);
+                            s.truncate(idx);
+                        }
+                    }
+                }
+            }
+            Action::BranchListSearchEnter => {
+                if let Some(DialogState::BranchList { branches, filter_string, search_input, cursor, scroll_offset }) = &mut self.dialog {
+                    let new_filter = search_input.take().unwrap_or_default();
+                    *filter_string = new_filter.clone();
+                    let filtered = Self::filter_branch_list(branches, &new_filter);
+                    *cursor = 0;
+                    *scroll_offset = 0;
+                    if !filtered.is_empty() && *cursor >= filtered.len() {
+                        *cursor = filtered.len() - 1;
+                    }
+                }
+            }
+            Action::BranchListSearchCancel => {
+                if let Some(DialogState::BranchList { search_input, .. }) = &mut self.dialog {
+                    *search_input = None;
+                }
+            }
 
             // --- 検索 ---
             Action::FindNext => {
@@ -791,6 +891,19 @@ impl App {
             Some(DialogState::Message { .. }) => {
                 // Message ダイアログは確定操作なし（ESC で閉じるのみ）
             }
+            Some(DialogState::BranchList { branches, filter_string, cursor, .. }) => {
+                let filtered = Self::filter_branch_list(&branches, &filter_string);
+                if let Some((display, is_current, checkout_arg)) = filtered.get(cursor) {
+                    if *is_current {
+                        self.show_message(
+                            format!("既に {} ブランチにいます", display),
+                            MessageLevel::Info,
+                        );
+                    } else {
+                        self.handle_git_checkout_execute(checkout_arg);
+                    }
+                }
+            }
             Some(DialogState::Input { value, pending, .. }) => {
                 if value.trim().is_empty() {
                     return Ok(());
@@ -821,6 +934,9 @@ impl App {
                             format!("作成: {}", value),
                             MessageLevel::Success,
                         );
+                    }
+                    PendingInputAction::GitCheckout => {
+                        self.handle_git_checkout_execute(&value);
                     }
                     PendingInputAction::Chmod(paths) => {
                         match u32::from_str_radix(value.trim(), 8) {
@@ -874,6 +990,100 @@ impl App {
         let _ = self.right_pane.refresh();
     }
 
+    /// キーワードでブランチリストをフィルタ（大文字小文字無視）
+    fn filter_branch_list(
+        branches: &[(String, bool, String)],
+        filter: &str,
+    ) -> Vec<(String, bool, String)> {
+        if filter.trim().is_empty() {
+            return branches.to_vec();
+        }
+        let f = filter.to_lowercase();
+        branches
+            .iter()
+            .filter(|(display, _, _)| display.to_lowercase().contains(&f))
+            .cloned()
+            .collect()
+    }
+
+    /// git branch -a リストダイアログ表示
+    fn handle_git_branch_list(&mut self) {
+        let dir = self.active_pane_ref().current_dir.clone();
+        if !crate::utils::git::is_git_repo(&dir) {
+            self.show_message(
+                "Git リポジトリではありません".to_string(),
+                MessageLevel::Warning,
+            );
+            return;
+        }
+
+        let items = crate::utils::git::git_branch_list(&dir);
+        if items.is_empty() {
+            self.show_message(
+                "ブランチが見つかりません".to_string(),
+                MessageLevel::Warning,
+            );
+            return;
+        }
+
+        let branch_tuples: Vec<(String, bool, String)> = items
+            .into_iter()
+            .map(|b| (b.display, b.is_current, b.checkout_arg))
+            .collect();
+        let current_idx = branch_tuples.iter().position(|(_, is_cur, _)| *is_cur).unwrap_or(0);
+
+        self.mode = AppMode::Dialog;
+        self.dialog = Some(DialogState::BranchList {
+            branches: branch_tuples,
+            filter_string: String::new(),
+            search_input: None,
+            cursor: current_idx,
+            scroll_offset: 0,
+        });
+    }
+
+    /// git checkout 入力ダイアログ表示
+    fn handle_git_checkout_request(&mut self) {
+        let dir = self.active_pane_ref().current_dir.clone();
+        if !crate::utils::git::is_git_repo(&dir) {
+            self.show_message(
+                "Git リポジトリではありません".to_string(),
+                MessageLevel::Warning,
+            );
+            return;
+        }
+
+        self.mode = AppMode::Dialog;
+        self.dialog = Some(DialogState::Input {
+            title: "git checkout（ブランチ名または -b 新ブランチ名）".to_string(),
+            value: String::new(),
+            cursor_pos: 0,
+            pending: PendingInputAction::GitCheckout,
+        });
+    }
+
+    /// git checkout 実行
+    fn handle_git_checkout_execute(&mut self, args: &str) {
+        let dir = self.active_pane_ref().current_dir.clone();
+        let result = crate::utils::git::git_checkout(&dir, args);
+
+        if result.success {
+            // refresh() 内で git_branch も更新される
+            let _ = self.left_pane.refresh();
+            let _ = self.right_pane.refresh();
+            self.show_message(
+                format!("git checkout: {}", result.message),
+                MessageLevel::Success,
+            );
+        } else {
+            self.mode = AppMode::Dialog;
+            self.dialog = Some(DialogState::Message {
+                title: "git checkout エラー".to_string(),
+                content: result.message,
+            });
+        }
+    }
+
     /// コマンド実行
     fn handle_command_execute(&mut self) -> Result<(), AppError> {
         let input = self.command_state.input.clone();
@@ -911,13 +1121,12 @@ impl App {
                         pane.show_hidden = !pane.show_hidden;
                         pane.refresh()?;
                     }
-                    CommandAction::Shell(cmd) => {
-                        self.show_message(
-                            format!("シェル: {}", cmd),
-                            MessageLevel::Info,
-                        );
-                        // TODO: 実際のシェル実行
-                    }
+                    // CommandAction::Shell(cmd) => {
+                    //     self.show_message(
+                    //         format!("シェル: {}", cmd),
+                    //         MessageLevel::Info,
+                    //     );
+                    // }
                     CommandAction::CreateDir(name) => {
                         let dir = self.active_pane_ref().current_dir.clone();
                         operations::create_dir(&dir, &name)?;
