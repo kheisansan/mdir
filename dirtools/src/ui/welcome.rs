@@ -33,7 +33,7 @@ pub fn render(frame: &mut Frame, area: Rect) {
 
     let lines = vec![
         Line::raw(""),
-        Line::from(Span::styled("mdir v0.1.0 へようこそ", title_style)),
+        Line::from(Span::styled("mdir v0.1.1 へようこそ", title_style)),
         Line::raw(""),
         Line::from(Span::styled(
             "vi スタイルのターミナルファイルマネージャー",

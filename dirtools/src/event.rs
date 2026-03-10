@@ -92,9 +92,10 @@ fn kana_to_normal_action(c: char) -> Option<Action> {
         // --- マーキング ---
         'ち' | 'あ' => Action::ToggleMarkAll,      // a (かな: ち, ローマ字: あ)
 
-        // --- 表示 ---
+        // --- 表示・ペイン ---
         'と' => Action::ShowSortMenu,              // s
-        'る' | '。' => Action::ToggleHidden,       // . (かな: る, ローマ字: 。)
+        'つ' => Action::ToggleHidden,              // z (かな: つ)
+        'る' | '。' => Action::GoHomeRight,        // . (かな: る, ローマ字: 。) 右ペインをホームへ
         'に' | 'い' => Action::ShowFileInfo,       // i (かな: に, ローマ字: い)
 
         // --- モード遷移 ---
@@ -161,6 +162,9 @@ fn handle_normal_key(key: KeyEvent) -> Result<Action, AppError> {
 
         // === ペイン ===
         KeyCode::Tab | KeyCode::BackTab => Action::SwitchPane,
+        KeyCode::Char(',') => Action::GoHomeLeft,   // 左ペインを cd ~ に
+        KeyCode::Char('.') => Action::GoHomeRight,  // 右ペインを cd ~ に
+        KeyCode::Char('f') => Action::SyncDirToOtherPane, // アクティブペインのディレクトリを非アクティブに反映
 
         // === ファイル操作（アルファベット + ファンクションキー）===
         KeyCode::Char('c') | KeyCode::F(5) => Action::CopyFiles,
@@ -184,7 +188,7 @@ fn handle_normal_key(key: KeyEvent) -> Result<Action, AppError> {
 
         // === 表示 ===
         KeyCode::Char('s') => Action::ShowSortMenu,
-        KeyCode::Char('.') => Action::ToggleHidden,
+        KeyCode::Char('z') => Action::ToggleHidden,
         KeyCode::Char('i') => Action::ShowFileInfo,
 
         // === モード遷移 ===
@@ -271,6 +275,14 @@ fn handle_dialog_key(key: KeyEvent, app: &App) -> Result<Action, AppError> {
         },
         Some(DialogState::Message { .. }) => match key.code {
             KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') => Action::DialogCancel,
+            _ => Action::Noop,
+        },
+        Some(DialogState::CopyMoveConflict { .. }) => match key.code {
+            KeyCode::Tab | KeyCode::Right => Action::DialogConflictNext,
+            KeyCode::Left => Action::DialogConflictPrev,
+            KeyCode::Enter => Action::DialogConfirm,
+            KeyCode::Esc | KeyCode::Char('n') => Action::DialogCancel,
+            KeyCode::Char('y') => Action::DialogConfirm, // 現在の focus で確定（0=上書き 1=リネーム 2=キャンセル）
             _ => Action::Noop,
         },
         Some(DialogState::BranchList { search_input, .. }) => {

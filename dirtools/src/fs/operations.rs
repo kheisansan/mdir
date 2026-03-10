@@ -8,12 +8,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// ファイル名衝突時の解決方法
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum ConflictResolution {
     Overwrite,
     Skip,
     Cancel,
+    /// リネームしてコピー/移動（新しいパスを指定）
+    Rename(PathBuf),
 }
 
 /// ファイル操作の進捗情報（大きなファイルコピー時等に使用）
@@ -42,18 +44,21 @@ pub fn copy_files(
         let dest = dest_dir.join(file_name);
 
         // 同名ファイル存在チェック
-        if dest.exists() {
+        let actual_dest = if dest.exists() {
             match on_conflict(&dest) {
-                ConflictResolution::Overwrite => {}
+                ConflictResolution::Overwrite => dest.clone(),
                 ConflictResolution::Skip => continue,
                 ConflictResolution::Cancel => return Ok(copied),
+                ConflictResolution::Rename(ref new_path) => new_path.clone(),
             }
-        }
+        } else {
+            dest.clone()
+        };
 
         if source.is_dir() {
-            copy_dir_recursive(source, &dest)?;
+            copy_dir_recursive(source, &actual_dest)?;
         } else {
-            fs::copy(source, &dest)?;
+            fs::copy(source, &actual_dest)?;
         }
         copied += 1;
     }
@@ -77,7 +82,7 @@ pub fn move_files(
             .ok_or(AppError::InvalidPath)?;
         let dest = dest_dir.join(file_name);
 
-        if dest.exists() {
+        let actual_dest = if dest.exists() {
             match on_conflict(&dest) {
                 ConflictResolution::Overwrite => {
                     if dest.is_dir() {
@@ -85,20 +90,24 @@ pub fn move_files(
                     } else {
                         fs::remove_file(&dest)?;
                     }
+                    dest.clone()
                 }
                 ConflictResolution::Skip => continue,
                 ConflictResolution::Cancel => return Ok(moved),
+                ConflictResolution::Rename(ref new_path) => new_path.clone(),
             }
-        }
+        } else {
+            dest.clone()
+        };
 
         // まず rename を試行（高速、同一FS内の場合）
-        if fs::rename(source, &dest).is_err() {
+        if fs::rename(source, &actual_dest).is_err() {
             // 別 FS の場合: copy + delete
             if source.is_dir() {
-                copy_dir_recursive(source, &dest)?;
+                copy_dir_recursive(source, &actual_dest)?;
                 fs::remove_dir_all(source)?;
             } else {
-                fs::copy(source, &dest)?;
+                fs::copy(source, &actual_dest)?;
                 fs::remove_file(source)?;
             }
         }

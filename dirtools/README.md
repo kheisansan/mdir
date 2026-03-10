@@ -22,20 +22,37 @@ vi スタイルのキーボード操作を軸にした、macOS 向けターミ�
 
 ```bash
 git clone <repository-url>
-cd dirtools
-cargo build --release
+cd mdir/dirtools
+cargo clean && cargo build --release
 ```
 
 ビルド後のバイナリは `target/release/mdir` に生成されます。
+
+**重要**: 改修を反映したバイナリを実行するには、必ず上記のとおり `cargo clean` してから `cargo build --release` すること。  
+実行するときは **プロジェクト内のバイナリを直接指定**すること（PATH の `mdir` は古い可能性があります）:
+
+```bash
+# プロジェクト内のバイナリを実行（推奨）
+./target/release/mdir --version   # 0.1.1 と表示されれば改修版
+./target/release/mdir
+```
+
+PATH にインストールして使う場合は、ビルド後に次で更新:
+
+```bash
+cargo install --path .
+```
 
 ### 実行
 
 ```bash
 # カレントディレクトリで起動
+./target/release/mdir
+# または
 cargo run
 
 # 左右ペインのディレクトリを指定して起動
-cargo run -- --left ~/Documents --right ~/Downloads
+./target/release/mdir --left ~/Documents --right ~/Downloads
 ```
 
 ## キーバインド

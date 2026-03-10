@@ -26,6 +26,8 @@ pub enum Action {
     Enter,
     ParentDirectory,
     GoHome,
+    GoHomeLeft,   // 左ペインをホームに
+    GoHomeRight,  // 右ペインをホームに
     JumpTop,
     JumpBottom,
 
@@ -33,6 +35,8 @@ pub enum Action {
     SwitchPane,
     ActivatePane(PaneSide),
     SetPaneRatio(f32),
+    /// アクティブペインのカレントディレクトリを非アクティブペインに反映
+    SyncDirToOtherPane,
 
     // --- ファイル操作 ---
     CopyFiles,
@@ -83,6 +87,10 @@ pub enum Action {
     DialogConfirm,
     DialogCancel,
     DialogInput(char),
+    /// 衝突ダイアログの選択を次へ（Tab/Right）
+    DialogConflictNext,
+    /// 衝突ダイアログの選択を前へ（Left）
+    DialogConflictPrev,
     DialogBackspace,
     DialogCursorLeft,
     DialogCursorRight,
@@ -179,6 +187,15 @@ pub enum DialogState {
         search_input: Option<String>,
         cursor: usize,
         scroll_offset: usize,
+    },
+    /// コピー/移動時の同名ファイル衝突（上書き or リネーム or キャンセル）
+    CopyMoveConflict {
+        sources: Vec<PathBuf>,
+        dest_dir: PathBuf,
+        index: usize,
+        is_move: bool,
+        /// 0=上書き 1=リネームしてコピー/移動 2=キャンセル
+        focus: usize,
     },
 }
 
@@ -383,6 +400,16 @@ impl App {
                 let home = dirs::home_dir().ok_or(AppError::HomeDirNotFound)?;
                 self.active_pane_mut().navigate_to(home)?;
             }
+            Action::GoHomeLeft => {
+                self.find_state = None;
+                let home = dirs::home_dir().ok_or(AppError::HomeDirNotFound)?;
+                self.left_pane.navigate_to(home)?;
+            }
+            Action::GoHomeRight => {
+                self.find_state = None;
+                let home = dirs::home_dir().ok_or(AppError::HomeDirNotFound)?;
+                self.right_pane.navigate_to(home)?;
+            }
             Action::JumpTop => self.active_pane_mut().jump_top(),
             Action::JumpBottom => self.active_pane_mut().jump_bottom(),
 
@@ -400,6 +427,11 @@ impl App {
             }
             Action::SetPaneRatio(ratio) => {
                 self.pane_ratio = ratio.clamp(0.2, 0.8);
+            }
+            Action::SyncDirToOtherPane => {
+                self.find_state = None;
+                let dir = self.active_pane_ref().current_dir.clone();
+                self.opposite_pane_mut().navigate_to(dir)?;
             }
 
             // --- ファイル操作 ---
@@ -616,6 +648,16 @@ impl App {
                 self.dialog = None;
                 self.mode = AppMode::Normal;
             }
+            Action::DialogConflictNext => {
+                if let Some(DialogState::CopyMoveConflict { focus, .. }) = &mut self.dialog {
+                    *focus = (*focus + 1) % 3;
+                }
+            }
+            Action::DialogConflictPrev => {
+                if let Some(DialogState::CopyMoveConflict { focus, .. }) = &mut self.dialog {
+                    *focus = (*focus + 2) % 3;
+                }
+            }
             Action::DialogInput(c) => {
                 if let Some(DialogState::Input { value, cursor_pos, .. }) = &mut self.dialog {
                     value.insert(*cursor_pos, c);
@@ -725,33 +767,92 @@ impl App {
         Ok(())
     }
 
-    /// コピー実行
+    /// コピー実行（同名ファイルがある場合は衝突ダイアログを表示）
     fn handle_copy(&mut self) -> Result<(), AppError> {
         let sources = self.active_pane_ref().selected_paths();
         if sources.is_empty() {
             return Ok(());
         }
-        let dest = self.opposite_pane_ref().current_dir.clone();
-        let count = operations::copy_files(&sources, &dest, &|_| ConflictResolution::Overwrite)?;
+        let dest_dir = self.opposite_pane_ref().current_dir.clone();
+        if let Some(index) = sources.iter().position(|s| {
+            s.file_name()
+                .map(|n| dest_dir.join(n).exists())
+                .unwrap_or(false)
+        }) {
+            self.mode = AppMode::Dialog;
+            self.dialog = Some(DialogState::CopyMoveConflict {
+                sources,
+                dest_dir,
+                index,
+                is_move: false,
+                focus: 0,
+            });
+            return Ok(());
+        }
+        let count = operations::copy_files(&sources, &dest_dir, &|_| ConflictResolution::Overwrite)?;
         self.active_pane_mut().clear_marks();
         self.opposite_pane_mut().refresh()?;
         self.show_message(format!("{}件コピーしました", count), MessageLevel::Success);
         Ok(())
     }
 
-    /// 移動実行
+    /// 移動実行（同名ファイルがある場合は衝突ダイアログを表示）
     fn handle_move(&mut self) -> Result<(), AppError> {
         let sources = self.active_pane_ref().selected_paths();
         if sources.is_empty() {
             return Ok(());
         }
-        let dest = self.opposite_pane_ref().current_dir.clone();
-        let count = operations::move_files(&sources, &dest, &|_| ConflictResolution::Overwrite)?;
+        let dest_dir = self.opposite_pane_ref().current_dir.clone();
+        if let Some(index) = sources.iter().position(|s| {
+            s.file_name()
+                .map(|n| dest_dir.join(n).exists())
+                .unwrap_or(false)
+        }) {
+            self.mode = AppMode::Dialog;
+            self.dialog = Some(DialogState::CopyMoveConflict {
+                sources,
+                dest_dir,
+                index,
+                is_move: true,
+                focus: 0,
+            });
+            return Ok(());
+        }
+        let count = operations::move_files(&sources, &dest_dir, &|_| ConflictResolution::Overwrite)?;
         self.active_pane_mut().clear_marks();
         self.active_pane_mut().refresh()?;
         self.opposite_pane_mut().refresh()?;
         self.show_message(format!("{}件移動しました", count), MessageLevel::Success);
         Ok(())
+    }
+
+    /// 同名を避けるためのユニークなパスを生成（例: file.txt → file (1).txt）
+    fn unique_dest_path(dest_dir: &std::path::Path, source: &std::path::Path) -> PathBuf {
+        let name = match source.file_name() {
+            Some(n) => n.to_string_lossy(),
+            None => return dest_dir.join("unknown"),
+        };
+        let stem = source
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| name.clone().into_owned());
+        let ext = source.extension().map(|e| format!(".{}", e.to_string_lossy()));
+
+        let first = dest_dir.join(&*name);
+        if !first.exists() {
+            return first;
+        }
+        for i in 1..1000 {
+            let new_name = match &ext {
+                Some(e) => format!("{} ({}){}", stem, i, e),
+                None => format!("{} ({})", stem, i),
+            };
+            let p = dest_dir.join(&new_name);
+            if !p.exists() {
+                return p;
+            }
+        }
+        dest_dir.join(name.to_string() + "_copy")
     }
 
     /// 削除確認ダイアログ表示
@@ -877,6 +978,61 @@ impl App {
         self.mode = AppMode::Normal;
 
         match dialog {
+            Some(DialogState::CopyMoveConflict {
+                sources,
+                dest_dir,
+                index,
+                is_move,
+                focus,
+            }) => {
+                if focus == 2 {
+                    self.active_pane_mut().clear_marks();
+                    let _ = self.active_pane_mut().refresh();
+                    let _ = self.opposite_pane_mut().refresh();
+                    self.show_message("キャンセルしました".to_string(), MessageLevel::Info);
+                    return Ok(());
+                }
+                let op = if is_move {
+                    operations::move_files
+                } else {
+                    operations::copy_files
+                };
+                if focus == 0 {
+                    op(&[sources[index].clone()], &dest_dir, &|_| ConflictResolution::Overwrite)?;
+                } else {
+                    let new_path = Self::unique_dest_path(&dest_dir, &sources[index]);
+                    op(
+                        &[sources[index].clone()],
+                        &dest_dir,
+                        &|_| ConflictResolution::Rename(new_path.clone()),
+                    )?;
+                }
+                let mut idx = index + 1;
+                while idx < sources.len() {
+                    let dest_path = dest_dir.join(sources[idx].file_name().unwrap_or_default());
+                    if dest_path.exists() {
+                        self.mode = AppMode::Dialog;
+                        self.dialog = Some(DialogState::CopyMoveConflict {
+                            sources,
+                            dest_dir,
+                            index: idx,
+                            is_move,
+                            focus: 0,
+                        });
+                        return Ok(());
+                    }
+                    op(&[sources[idx].clone()], &dest_dir, &|_| ConflictResolution::Overwrite)?;
+                    idx += 1;
+                }
+                self.active_pane_mut().clear_marks();
+                let _ = self.active_pane_mut().refresh();
+                let _ = self.opposite_pane_mut().refresh();
+                let verb = if is_move { "移動" } else { "コピー" };
+                self.show_message(
+                    format!("{}件{}しました", sources.len(), verb),
+                    MessageLevel::Success,
+                );
+            }
             Some(DialogState::Confirm { pending, .. }) => match pending {
                 PendingAction::Delete(paths) => {
                     let count = operations::delete_to_trash(&paths)?;

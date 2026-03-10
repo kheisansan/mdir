@@ -1,6 +1,6 @@
 [package]
 name = "mdir"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["mdir contributors"]
 description = "A vi-style terminal file manager inspired by MDIR"
