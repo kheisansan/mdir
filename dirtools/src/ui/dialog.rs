@@ -38,6 +38,13 @@ pub fn render(frame: &mut Frame, area: Rect, dialog: &DialogState) {
             cursor,
             scroll_offset,
         } => render_branch_list(frame, area, branches, filter_string, search_input, *cursor, *scroll_offset),
+        DialogState::CopyMoveConflict {
+            sources,
+            dest_dir: _,
+            index,
+            is_move,
+            focus,
+        } => render_copy_move_conflict(frame, area, sources, *index, *is_move, *focus),
     }
 }
 
@@ -379,6 +386,91 @@ fn render_branch_list(
 // ---------------------------------------------------------------------------
 // 共通ヘルパー
 // ---------------------------------------------------------------------------
+
+/// コピー/移動 同名衝突ダイアログ（上書き / リネーム / キャンセル）
+fn render_copy_move_conflict(
+    frame: &mut Frame,
+    area: Rect,
+    sources: &[std::path::PathBuf],
+    index: usize,
+    is_move: bool,
+    focus: usize,
+) {
+    let verb = if is_move { "移動" } else { "コピー" };
+    let title = format!("同名ファイル {} 先で衝突", verb);
+    let name = sources
+        .get(index)
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_default();
+    let message = format!("「{}」は既に存在します。どうしますか？", name);
+
+    let dialog_width = 52u16.min(area.width.saturating_sub(4));
+    let dialog_height = 8u16;
+    let dialog_area = centered_rect(dialog_width, dialog_height, area);
+
+    frame.render_widget(Clear, dialog_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!(" {} ", title))
+        .title_style(theme::dialog_title_style().fg(theme::RED))
+        .border_style(theme::border_style(true));
+    let inner = block.inner(dialog_area);
+    frame.render_widget(block, dialog_area);
+
+    let msg = Paragraph::new(message)
+        .alignment(Alignment::Center)
+        .style(Style::default().fg(theme::FG));
+    let msg_area = Rect::new(inner.x, inner.y + 1, inner.width, 2);
+    frame.render_widget(msg, msg_area);
+
+    let overwrite_style = if focus == 0 {
+        Style::default().fg(theme::RED).add_modifier(Modifier::REVERSED)
+    } else {
+        Style::default().fg(theme::FG_DIM)
+    };
+    let rename_label = if is_move { "リネームして移動" } else { "リネームしてコピー" };
+    let rename_style = if focus == 1 {
+        Style::default().fg(theme::GREEN).add_modifier(Modifier::REVERSED)
+    } else {
+        Style::default().fg(theme::FG_DIM)
+    };
+    let cancel_style = if focus == 2 {
+        Style::default().fg(theme::YELLOW).add_modifier(Modifier::REVERSED)
+    } else {
+        Style::default().fg(theme::FG_DIM)
+    };
+
+    let buttons = Line::from(vec![
+        Span::raw(" "),
+        Span::styled(" 上書き ", overwrite_style),
+        Span::raw(" "),
+        Span::styled(rename_label, rename_style),
+        Span::raw(" "),
+        Span::styled(" キャンセル ", cancel_style),
+        Span::raw(" "),
+    ]);
+    let btn_area = Rect::new(inner.x, inner.y + 4, inner.width, 1);
+    frame.render_widget(
+        Paragraph::new(buttons).alignment(Alignment::Center),
+        btn_area,
+    );
+
+    let hints = Line::from(vec![
+        Span::styled(" Tab/←/→", theme::function_key_style()),
+        Span::styled("選択 ", theme::function_bar_style()),
+        Span::styled(" Enter", theme::function_key_style()),
+        Span::styled("決定 ", theme::function_bar_style()),
+        Span::styled(" Esc", theme::function_key_style()),
+        Span::styled("キャンセル", theme::function_bar_style()),
+    ]);
+    let hint_area = Rect::new(inner.x, inner.y + 5, inner.width, 1);
+    frame.render_widget(
+        Paragraph::new(hints).alignment(Alignment::Center),
+        hint_area,
+    );
+}
 
 /// 親領域の中央に配置された Rect を計算
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
