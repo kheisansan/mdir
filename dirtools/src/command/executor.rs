@@ -27,8 +27,6 @@ pub enum CommandAction {
     CreateDir(String),
     /// ファイル作成
     CreateFile(String),
-    /// ブックマーク追加（将来）
-    Bookmark(#[allow(dead_code)] Option<String>),
     /// ファイル名検索
     Find(String),
 }
@@ -108,10 +106,6 @@ fn execute_builtin(cmd: &ParsedCommand, current_dir: &std::path::Path) -> Result
             }
             Ok(CommandAction::CreateFile(cmd.args[0].clone()))
         }
-        "bookmark" => {
-            let name = cmd.args.first().cloned();
-            Ok(CommandAction::Bookmark(name))
-        }
         "find" => {
             if cmd.args.is_empty() {
                 return Err(AppError::InvalidArguments {
@@ -132,7 +126,6 @@ fn execute_builtin(cmd: &ParsedCommand, current_dir: &std::path::Path) -> Result
 fn resolve_alias(name: &str) -> String {
     match name {
         "q" => "quit".to_string(),
-        "bm" => "bookmark".to_string(),
         other => other.to_string(),
     }
 }

@@ -12,7 +12,7 @@ use ratatui::Frame;
 pub fn render(frame: &mut Frame, area: Rect) {
     let line = Line::from(vec![
         Span::styled(" mdir", theme::header_style().fg(theme::CYAN)),
-        Span::styled(" v0.1.0", theme::header_style().fg(theme::FG_DIM)),
+        Span::styled(" v0.2.0", theme::header_style().fg(theme::FG_DIM)),
     ]);
 
     // 背景塗り潰し

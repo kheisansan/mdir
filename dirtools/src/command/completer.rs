@@ -7,7 +7,7 @@ use std::path::Path;
 
 /// ビルトインコマンド名一覧
 const BUILTIN_NAMES: &[&str] = &[
-    "help", "quit", "q", "cd", "sort", "set", "mkdir", "touch", "bookmark", "find",
+    "help", "quit", "q", "cd", "sort", "set", "mkdir", "touch", "find",
 ];
 
 /// ヘルプトピック一覧

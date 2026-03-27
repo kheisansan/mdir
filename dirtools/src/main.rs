@@ -30,7 +30,7 @@ use std::path::PathBuf;
 
 /// mdir - vi スタイルのターミナルファイルマネージャー
 #[derive(Parser)]
-#[command(name = "mdir", version = "0.1.1", about = "MDIR 風の vi スタイル ターミナルファイルマネージャー")]
+#[command(name = "mdir", version = "0.2.0", about = "MDIR 風の vi スタイル ターミナルファイルマネージャー")]
 struct Cli {
     /// 開くディレクトリ（省略時はカレントディレクトリ）
     #[arg(value_name = "パス")]

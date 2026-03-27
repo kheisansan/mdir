@@ -74,6 +74,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         AppMode::Command => {
             command_line::render(frame, layout.bottom_bar, &app.command_state);
         }
+        AppMode::Search => {
+            command_line::render_search(frame, layout.bottom_bar, &app.search_input);
+        }
         AppMode::Help => {} // ヘルプは全画面オーバーレイなので最下行は不要
     }
 
