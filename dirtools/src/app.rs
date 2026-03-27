@@ -111,6 +111,17 @@ pub enum Action {
     // --- 検索 ---
     FindNext,
     FindPrev,
+    EnterSearchMode,
+    SearchInput(char),
+    SearchBackspace,
+    SearchExecute,
+    ExitSearchMode,
+    /// 検索クエリをクリア
+    ClearSearch,
+
+    // --- クリップボード ---
+    CopyFileName,
+    CopyFullPath,
 
     // --- アプリ制御 ---
     Quit,
@@ -254,8 +265,12 @@ pub struct App {
     pub terminal_size: (u16, u16),
     /// 直前のクリック情報（ダブルクリック検出用: x, y, 時刻）
     pub last_click: Option<(u16, u16, Instant)>,
-    /// ファイル検索状態（`:find` コマンドの結果）
+    /// ファイル検索状態（`:find` / `/` 検索の結果）
     pub find_state: Option<FindState>,
+    /// 永続検索クエリ（ペイン切替・ディレクトリ移動後も維持）
+    pub search_query: Option<String>,
+    /// 検索モード（`/`）の入力バッファ
+    pub search_input: String,
     /// 自動リフレッシュ用タイマー
     last_auto_refresh: Instant,
 }
@@ -290,6 +305,8 @@ impl App {
             terminal_size: (80, 24),
             last_click: None,
             find_state: None,
+            search_query: None,
+            search_input: String::new(),
             last_auto_refresh: Instant::now(),
         })
     }
@@ -371,9 +388,9 @@ impl App {
     /// テキスト入力モード（コマンド/ダイアログ）から通常モードに戻る際に
     /// IME を ASCII モードに戻す制御を行う。
     pub fn apply_action(&mut self, action: Action) -> Result<(), AppError> {
-        let was_text_input = matches!(self.mode, AppMode::Command | AppMode::Dialog);
+        let was_text_input = matches!(self.mode, AppMode::Command | AppMode::Search | AppMode::Dialog);
         let result = self.apply_action_inner(action);
-        let is_text_input = matches!(self.mode, AppMode::Command | AppMode::Dialog);
+        let is_text_input = matches!(self.mode, AppMode::Command | AppMode::Search | AppMode::Dialog);
         // テキスト入力モードから抜けたら ASCII モードを強制
         if was_text_input && !is_text_input {
             crate::ime::force_ascii();
@@ -392,44 +409,47 @@ impl App {
             }
             Action::Enter => self.handle_enter()?,
             Action::ParentDirectory => {
-                self.find_state = None;
                 self.active_pane_mut().navigate_parent()?;
+                self.reapply_find();
             }
             Action::GoHome => {
-                self.find_state = None;
                 let home = dirs::home_dir().ok_or(AppError::HomeDirNotFound)?;
                 self.active_pane_mut().navigate_to(home)?;
+                self.reapply_find();
             }
             Action::GoHomeLeft => {
-                self.find_state = None;
                 let home = dirs::home_dir().ok_or(AppError::HomeDirNotFound)?;
                 self.left_pane.navigate_to(home)?;
+                if self.active_pane == PaneSide::Left {
+                    self.reapply_find();
+                }
             }
             Action::GoHomeRight => {
-                self.find_state = None;
                 let home = dirs::home_dir().ok_or(AppError::HomeDirNotFound)?;
                 self.right_pane.navigate_to(home)?;
+                if self.active_pane == PaneSide::Right {
+                    self.reapply_find();
+                }
             }
             Action::JumpTop => self.active_pane_mut().jump_top(),
             Action::JumpBottom => self.active_pane_mut().jump_bottom(),
 
             // --- ペイン ---
             Action::SwitchPane => {
-                self.find_state = None;
                 self.active_pane = match self.active_pane {
                     PaneSide::Left => PaneSide::Right,
                     PaneSide::Right => PaneSide::Left,
                 };
+                self.reapply_find();
             }
             Action::ActivatePane(side) => {
-                self.find_state = None;
                 self.active_pane = side;
+                self.reapply_find();
             }
             Action::SetPaneRatio(ratio) => {
                 self.pane_ratio = ratio.clamp(0.2, 0.8);
             }
             Action::SyncDirToOtherPane => {
-                self.find_state = None;
                 let dir = self.active_pane_ref().current_dir.clone();
                 self.opposite_pane_mut().navigate_to(dir)?;
             }
@@ -468,27 +488,27 @@ impl App {
 
             // --- 表示 ---
             Action::ToggleHidden => {
-                self.find_state = None;
                 let pane = self.active_pane_mut();
                 pane.show_hidden = !pane.show_hidden;
                 pane.refresh()?;
+                self.reapply_find();
             }
             Action::ShowSortMenu => {
                 // TODO: ソートメニューダイアログ
             }
             Action::SetSort(criteria) => {
-                self.find_state = None;
                 let pane = self.active_pane_mut();
                 pane.sort_order.criteria = criteria;
                 pane.refresh()?;
+                self.reapply_find();
             }
             Action::ShowFileInfo => {
                 // TODO: ファイル情報ポップアップ
             }
             Action::Refresh => {
-                self.find_state = None;
                 self.left_pane.refresh()?;
                 self.right_pane.refresh()?;
+                self.reapply_find();
             }
 
             // --- モード遷移 ---
@@ -595,18 +615,17 @@ impl App {
 
             // --- 検索 ---
             Action::FindNext => {
-                // 借用衝突回避: find_state から値を取り出してから self を変更
                 let info = self.find_state.as_mut().and_then(|fs| {
                     if fs.matches.is_empty() {
                         return None;
                     }
                     fs.current = (fs.current + 1) % fs.matches.len();
-                    Some((fs.matches[fs.current], fs.current + 1, fs.matches.len()))
+                    Some((fs.matches[fs.current], fs.current + 1, fs.matches.len(), fs.query.clone()))
                 });
-                if let Some((idx, pos, total)) = info {
+                if let Some((idx, pos, total, query)) = info {
                     self.active_pane_mut().cursor = idx;
                     self.show_message(
-                        format!("検索結果 ({}/{})", pos, total),
+                        format!("「{}」検索結果 ({}/{})", query, pos, total),
                         MessageLevel::Info,
                     );
                 }
@@ -621,14 +640,77 @@ impl App {
                     } else {
                         fs.current - 1
                     };
-                    Some((fs.matches[fs.current], fs.current + 1, fs.matches.len()))
+                    Some((fs.matches[fs.current], fs.current + 1, fs.matches.len(), fs.query.clone()))
                 });
-                if let Some((idx, pos, total)) = info {
+                if let Some((idx, pos, total, query)) = info {
                     self.active_pane_mut().cursor = idx;
                     self.show_message(
-                        format!("検索結果 ({}/{})", pos, total),
+                        format!("「{}」検索結果 ({}/{})", query, pos, total),
                         MessageLevel::Info,
                     );
+                }
+            }
+
+            // --- 検索モード ---
+            Action::EnterSearchMode => {
+                if self.mode == AppMode::Normal {
+                    self.search_input.clear();
+                    self.mode = AppMode::Search;
+                }
+            }
+            Action::SearchInput(c) => {
+                self.search_input.push(c);
+            }
+            Action::SearchBackspace => {
+                if self.search_input.is_empty() {
+                    self.mode = AppMode::Normal;
+                } else {
+                    let idx = self.search_input.char_indices().next_back().map(|(i, _)| i).unwrap_or(0);
+                    self.search_input.truncate(idx);
+                }
+            }
+            Action::SearchExecute => {
+                let query = self.search_input.clone();
+                self.mode = AppMode::Normal;
+                if query.is_empty() {
+                    self.search_query = None;
+                    self.find_state = None;
+                    self.show_message("検索をクリアしました".to_string(), MessageLevel::Info);
+                } else {
+                    self.search_query = Some(query.clone());
+                    self.execute_find(&query);
+                }
+            }
+            Action::ExitSearchMode => {
+                self.mode = AppMode::Normal;
+            }
+            Action::ClearSearch => {
+                self.search_query = None;
+                self.find_state = None;
+                self.show_message("検索をクリアしました".to_string(), MessageLevel::Info);
+            }
+
+            // --- クリップボード ---
+            Action::CopyFileName => {
+                if let Some(entry) = self.active_pane_ref().current_entry() {
+                    if entry.name != "." && entry.name != ".." {
+                        let name = entry.name.clone();
+                        match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(&name)) {
+                            Ok(_) => self.show_message(format!("コピー: {}", name), MessageLevel::Success),
+                            Err(e) => self.show_message(format!("クリップボードエラー: {}", e), MessageLevel::Error),
+                        }
+                    }
+                }
+            }
+            Action::CopyFullPath => {
+                if let Some(entry) = self.active_pane_ref().current_entry() {
+                    if entry.name != "." && entry.name != ".." {
+                        let path = entry.path.to_string_lossy().to_string();
+                        match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(&path)) {
+                            Ok(_) => self.show_message(format!("コピー: {}", path), MessageLevel::Success),
+                            Err(e) => self.show_message(format!("クリップボードエラー: {}", e), MessageLevel::Error),
+                        }
+                    }
                 }
             }
 
@@ -742,22 +824,22 @@ impl App {
 
         // . エントリ: カレントディレクトリをリフレッシュ
         if entry.name == "." {
-            self.find_state = None;
             self.active_pane_mut().refresh()?;
+            self.reapply_find();
             return Ok(());
         }
 
         // .. エントリ: 親ディレクトリへ移動
         if entry.name == ".." {
-            self.find_state = None;
             self.active_pane_mut().navigate_parent()?;
+            self.reapply_find();
             return Ok(());
         }
 
         if entry.is_dir() {
-            self.find_state = None;
             let path = entry.path.clone();
             self.active_pane_mut().navigate_to(path)?;
+            self.reapply_find();
         } else {
             // デフォルトアプリでファイルを開く
             if let Err(e) = open::that(&entry.path) {
@@ -1295,9 +1377,6 @@ impl App {
                         self.active_pane_mut().refresh()?;
                         self.show_message(format!("作成: {}", name), MessageLevel::Success);
                     }
-                    CommandAction::Bookmark(_) => {
-                        self.show_message("ブックマーク追加".to_string(), MessageLevel::Info);
-                    }
                     CommandAction::Find(query) => {
                         self.execute_find(&query);
                     }
@@ -1315,7 +1394,10 @@ impl App {
     ///
     /// アクティブペインのエントリから、名前に検索文字列を含むものを検索。
     /// 見つかった場合はカーソルを最初のマッチに移動し、find_state を設定する。
+    /// search_query も更新し、ペイン切替・ディレクトリ移動後に自動再検索する。
     fn execute_find(&mut self, query: &str) {
+        self.search_query = Some(query.to_string());
+
         let query_lower = query.to_lowercase();
         let matches: Vec<usize> = self
             .active_pane_ref()
@@ -1344,9 +1426,44 @@ impl App {
             });
             self.active_pane_mut().cursor = first;
             self.show_message(
-                format!("{}件見つかりました (1/{})", total, total),
+                format!("「{}」{}件見つかりました (1/{})", query, total, total),
                 MessageLevel::Info,
             );
+        }
+    }
+
+    /// 永続検索クエリを再適用（ペイン切替・ディレクトリ移動後に呼ぶ）
+    ///
+    /// カーソル位置は変更せず、find_state のみ更新する。
+    fn reapply_find(&mut self) {
+        let query = match &self.search_query {
+            Some(q) => q.clone(),
+            None => {
+                self.find_state = None;
+                return;
+            }
+        };
+
+        let query_lower = query.to_lowercase();
+        let matches: Vec<usize> = self
+            .active_pane_ref()
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| {
+                e.name != "." && e.name != ".." && e.name.to_lowercase().contains(&query_lower)
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        if matches.is_empty() {
+            self.find_state = None;
+        } else {
+            self.find_state = Some(FindState {
+                query,
+                matches,
+                current: 0,
+            });
         }
     }
 

@@ -43,8 +43,11 @@ fn build_help_lines() -> Vec<Line<'static>> {
         kb(".", "右ペインをホーム（cd ~）に"),
         kb("Tab", "アクティブペインを切り替え"),
         kb("f", "アクティブペインのディレクトリを反対ペインに反映"),
-        kb("o", "検索結果：前の候補へ（:find 実行後）"),
-        kb("p", "検索結果：次の候補へ（:find 実行後）"),
+        kb("/", "ファイル名検索（vi スタイル）"),
+        kb("o", "検索結果：前の候補へ"),
+        kb("p", "検索結果：次の候補へ"),
+        kb("1", "選択中のファイル/ディレクトリ名をクリップボードにコピー"),
+        kb("2", "選択中のファイル/ディレクトリのフルパスをクリップボードにコピー"),
         Line::raw(""),
         Line::from(Span::styled("━━━ ファイル操作 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━", section_style)),
         Line::raw(""),
@@ -80,7 +83,6 @@ fn build_help_lines() -> Vec<Line<'static>> {
         kb(":mkdir <名前>", "ディレクトリ作成"),
         kb(":touch <名前>", "ファイル作成"),
         kb(":find <文字列>", "ファイル名検索（o/pで候補移動）"),
-        kb(":bookmark [n]", "ブックマーク追加"),
         Line::raw(""),
         Line::from(vec![
             Span::raw("    "),
@@ -131,7 +133,7 @@ pub fn render(frame: &mut Frame, area: Rect, state: &HelpState) {
     // 枠
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" mdir v0.1.0 - ヘルプ ")
+        .title(" mdir v0.2.0 - ヘルプ ")
         .title_alignment(Alignment::Center)
         .title_style(theme::dialog_title_style())
         .border_style(theme::border_style(true));

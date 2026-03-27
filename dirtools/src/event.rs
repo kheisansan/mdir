@@ -82,20 +82,27 @@ fn kana_to_normal_action(c: char) -> Option<Action> {
 
         // --- Git ---
         'ん' => Action::GitPull,                    // y (かな: ん)
-        'な' => Action::GitCheckout,                // u (かな: な)
+        'な' | 'う' => Action::GitCheckout,         // u (かな: な, ローマ字: う)
         'こ' => Action::GitBranchList,              // b (かな: こ)
 
-        // --- 検索結果ナビゲーション ---
-        'ら' => Action::FindPrev,                   // o (かな: ら)
-        'せ' => Action::FindNext,                   // p (かな: せ)
+        // --- 検索 ---
+        'め' | '・' | '／' => Action::EnterSearchMode, // / (かな: め, ローマ字: ・, 全角: ／)
+        'ら' | 'お' => Action::FindPrev,             // o (かな: ら, ローマ字: お)
+        'せ' => Action::FindNext,                    // p (かな: せ)
+        'ぬ' | '１' => Action::CopyFileName,         // 1 (かな: ぬ, 全角: １)
+        'ふ' | '２' => Action::CopyFullPath,         // 2 (かな: ふ, 全角: ２)
 
         // --- マーキング ---
         'ち' | 'あ' => Action::ToggleMarkAll,      // a (かな: ち, ローマ字: あ)
 
-        // --- 表示・ペイン ---
+        // --- ペイン ---
+        'は' => Action::SyncDirToOtherPane,        // f (かな: は)
+        'ね' | '、' => Action::GoHomeLeft,         // , (かな: ね, ローマ字: 、)
+
+        // --- 表示 ---
         'と' => Action::ShowSortMenu,              // s
         'つ' => Action::ToggleHidden,              // z (かな: つ)
-        'る' | '。' => Action::GoHomeRight,        // . (かな: る, ローマ字: 。) 右ペインをホームへ
+        'る' | '。' => Action::GoHomeRight,        // . (かな: る, ローマ字: 。)
         'に' | 'い' => Action::ShowFileInfo,       // i (かな: に, ローマ字: い)
 
         // --- モード遷移 ---
@@ -134,6 +141,7 @@ fn handle_key(key: KeyEvent, app: &App) -> Result<Action, AppError> {
     match app.mode {
         AppMode::Normal => handle_normal_key(key),
         AppMode::Command => handle_command_key(key),
+        AppMode::Search => handle_search_key(key),
         AppMode::Help => handle_help_key(key),
         AppMode::Dialog => handle_dialog_key(key, app),
     }
@@ -182,9 +190,14 @@ fn handle_normal_key(key: KeyEvent) -> Result<Action, AppError> {
         KeyCode::Char(' ') | KeyCode::Insert => Action::ToggleMark,
         KeyCode::Char('a') => Action::ToggleMarkAll,
 
-        // === 検索結果ナビゲーション ===
+        // === 検索 ===
+        KeyCode::Char('/') => Action::EnterSearchMode,
         KeyCode::Char('o') => Action::FindPrev,
         KeyCode::Char('p') => Action::FindNext,
+
+        // === クリップボード ===
+        KeyCode::Char('1') => Action::CopyFileName,
+        KeyCode::Char('2') => Action::CopyFullPath,
 
         // === 表示 ===
         KeyCode::Char('s') => Action::ShowSortMenu,
@@ -218,6 +231,17 @@ fn handle_command_key(key: KeyEvent) -> Result<Action, AppError> {
         KeyCode::Up => Action::CommandHistoryPrev,
         KeyCode::Down => Action::CommandHistoryNext,
         KeyCode::Char(c) => Action::CommandInput(c),
+        _ => Action::Noop,
+    })
+}
+
+/// 検索モードのキーハンドリング（vi の `/` 検索と同じ操作感）
+fn handle_search_key(key: KeyEvent) -> Result<Action, AppError> {
+    Ok(match key.code {
+        KeyCode::Esc => Action::ExitSearchMode,
+        KeyCode::Enter => Action::SearchExecute,
+        KeyCode::Backspace => Action::SearchBackspace,
+        KeyCode::Char(c) => Action::SearchInput(c),
         _ => Action::Noop,
     })
 }
@@ -386,9 +410,15 @@ fn handle_left_click(x: u16, y: u16, app: &mut App) -> Action {
 
     // --- コマンドモードの [戻る] ボタン判定 ---
     if app.mode == AppMode::Command && y == h.saturating_sub(1) {
-        // 右端付近 "[戻る]" 部分（8文字分の余裕）
         if x >= w.saturating_sub(10) {
             return Action::ExitCommandMode;
+        }
+    }
+
+    // --- 検索モードの [戻る] ボタン判定 ---
+    if app.mode == AppMode::Search && y == h.saturating_sub(1) {
+        if x >= w.saturating_sub(10) {
+            return Action::ExitSearchMode;
         }
     }
 
