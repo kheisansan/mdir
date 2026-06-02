@@ -1,0 +1,9 @@
+# SwiftPM build artifacts
+.build/
+dist/
+
+# SwiftPM resolved dependencies (re-resolved on build)
+.swiftpm/
+
+# macOS
+.DS_Store

@@ -6,9 +6,35 @@
 //
 // macOS: Carbon framework の TIS (Text Input Source) API を使用
 // Windows/Linux: 現時点では no-op（将来対応）
+//
+// === 動作モードの切り替え ===
+// 単体（ターミナル上）で動く場合は従来どおり TIS API で入力ソースを切り替える。
+// 一方、SwiftUI ネイティブアプリ (MdirMac) に埋め込まれて動く場合は、
+// 入力ソースの制御をホスト側（GUI のキーウィンドウを所有する Swift 側）に委譲する。
+// 子プロセスから TIS を叩くより、フォーカスを持つ GUI アプリ側で制御する方が
+// 確実かつ副作用（メニューバー表示のちらつき等）が少ないため。
+// ホスト判定は環境変数 MDIR_HOST=macapp（Swift 側が設定）で行い、
+// ホスト下ではモード変化を私的 OSC シーケンスで Swift に通知する。
+
+use std::sync::OnceLock;
+
+/// 通知用の私的 OSC コード（既存ターミナルの OSC と衝突しない値）
+const HOST_OSC_CODE: u32 = 5379;
+
+/// SwiftUI ネイティブアプリ (MdirMac) に埋め込まれて動いているか
+fn is_native_host() -> bool {
+    static HOST: OnceLock<bool> = OnceLock::new();
+    *HOST.get_or_init(|| {
+        std::env::var("MDIR_HOST").map(|v| v == "macapp").unwrap_or(false)
+    })
+}
 
 /// アプリ起動時に呼ぶ。現在の入力ソースを保存し、ASCII モードに切り替える。
 pub fn init() {
+    // ネイティブホスト下では IME 制御は Swift 側が担うため何もしない
+    if is_native_host() {
+        return;
+    }
     platform::init();
 }
 
@@ -16,12 +42,35 @@ pub fn init() {
 ///
 /// コマンドモードやダイアログから通常モードに戻った際に呼ばれる。
 pub fn force_ascii() {
+    if is_native_host() {
+        return;
+    }
     platform::force_ascii();
 }
 
 /// アプリ終了時に呼ぶ。起動前の入力ソースを復元する。
 pub fn cleanup() {
+    if is_native_host() {
+        return;
+    }
     platform::cleanup();
+}
+
+/// 現在テキスト入力を受け付ける状態か（true）/ ナビゲーション状態か（false）を
+/// ネイティブホスト (Swift 側) に私的 OSC シーケンスで通知する。
+///
+/// Swift 側はこれを受けて、ナビゲーション時は IME をバイパスして
+/// 半角英数字としてキー入力を処理し、テキスト入力時のみ IME を許可する。
+/// ネイティブホスト以外では何もしない。
+pub fn report_text_input_mode(text_input: bool) {
+    if !is_native_host() {
+        return;
+    }
+    use std::io::Write;
+    let mut out = std::io::stdout();
+    // OSC: ESC ] <code> ; <0|1> BEL
+    let _ = write!(out, "\x1b]{};{}\x07", HOST_OSC_CODE, if text_input { 1 } else { 0 });
+    let _ = out.flush();
 }
 
 // ---------------------------------------------------------------------------

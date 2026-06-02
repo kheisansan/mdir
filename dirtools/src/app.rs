@@ -383,17 +383,39 @@ impl App {
     // Action 適用
     // -----------------------------------------------------------------------
 
+    /// 現在「日本語などのテキスト入力」を受け付けるべき状態か判定する。
+    ///
+    /// ディレクトリ名入力・コマンド入力・検索入力など、実際に文字列を打ち込む
+    /// 場面のみ true を返す。確認ダイアログ（y/n）やブランチ一覧のカーソル移動など、
+    /// vi 風のキー操作で完結する場面は false（= 半角英数字で受けたい）。
+    fn wants_text_input(&self) -> bool {
+        match self.mode {
+            AppMode::Command | AppMode::Search => true,
+            AppMode::Dialog => matches!(
+                self.dialog,
+                Some(DialogState::Input { .. })
+                    | Some(DialogState::BranchList { search_input: Some(_), .. })
+            ),
+            AppMode::Normal | AppMode::Help => false,
+        }
+    }
+
     /// Action を適用してアプリケーション状態を更新する
     ///
-    /// テキスト入力モード（コマンド/ダイアログ）から通常モードに戻る際に
-    /// IME を ASCII モードに戻す制御を行う。
+    /// テキスト入力モード（コマンド/ダイアログ）と通常モードの間を遷移する際に
+    /// IME 制御を行う。ネイティブホスト下では私的 OSC でモードを通知し、
+    /// 単体動作時は ASCII モードを強制する。
     pub fn apply_action(&mut self, action: Action) -> Result<(), AppError> {
-        let was_text_input = matches!(self.mode, AppMode::Command | AppMode::Search | AppMode::Dialog);
+        let was_text_input = self.wants_text_input();
         let result = self.apply_action_inner(action);
-        let is_text_input = matches!(self.mode, AppMode::Command | AppMode::Search | AppMode::Dialog);
-        // テキスト入力モードから抜けたら ASCII モードを強制
-        if was_text_input && !is_text_input {
-            crate::ime::force_ascii();
+        let is_text_input = self.wants_text_input();
+        if was_text_input != is_text_input {
+            // ネイティブホスト下では OSC でモード通知（force_ascii は no-op）、
+            // 単体動作時はテキスト入力を抜けたタイミングで ASCII を強制（report は no-op）。
+            crate::ime::report_text_input_mode(is_text_input);
+            if !is_text_input {
+                crate::ime::force_ascii();
+            }
         }
         result
     }

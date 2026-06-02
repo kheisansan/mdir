@@ -88,6 +88,8 @@ fn run() -> Result<(), AppError> {
 
     // IME を ASCII モードに強制（日本語入力が必要な場面では一時的に解除される）
     ime::init();
+    // ネイティブホスト (MdirMac) 下では初期状態（ナビゲーション）を通知しておく
+    ime::report_text_input_mode(false);
 
     // アプリケーション初期化
     let mut app = App::new(config, left_path, right_path)?;
@@ -144,8 +146,13 @@ fn run_main_loop(
     app: &mut App,
 ) -> Result<(), AppError> {
     loop {
-        // 描画
-        terminal.draw(|frame| ui::render(frame, app))?;
+        // 描画（ターミナルサイズが未確定（幅/高さ 0）の場合はスキップ。
+        // GUI ホスト起動直後、PTY のウィンドウサイズが届く前に描画すると
+        // 0 サイズのレイアウト計算になりうるため、サイズ確定まで待つ）
+        let size = terminal.size()?;
+        if size.width > 0 && size.height > 0 {
+            terminal.draw(|frame| ui::render(frame, app))?;
+        }
 
         // イベント取得 → Action 変換
         let action = event::next_action(app)?;
