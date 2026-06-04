@@ -19,9 +19,9 @@ struct TerminalContainerView: NSViewRepresentable {
         )
         terminal.processDelegate = context.coordinator
 
-        // 等幅フォント（SF Mono が無い環境ではシステム等幅にフォールバック）
-        terminal.font = NSFont(name: "SF Mono", size: 13)
-            ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        // 初期フォントは OS 標準サイズ（= 最小サイズ）。
+        // 以降は Cmd + "+"/"-" で拡大・縮小できる（MdirTerminalView 側で処理）。
+        terminal.applyDefaultFont()
 
         // mdir 本体からのモード通知 OSC を受け取り、IME バイパスを切り替える。
         // ペイロード "1" = テキスト入力（IME 許可）、"0" = ナビゲーション（ASCII 強制）。
