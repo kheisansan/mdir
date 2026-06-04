@@ -33,6 +33,18 @@ final class MdirTerminalView: LocalProcessTerminalView {
 
     private var keyMonitor: Any?
 
+    // MARK: - フォントサイズ
+
+    /// OS 標準のフォントサイズ。これを初期値かつ下限とする
+    /// （ユーザー要望により、デフォルトより小さくはできない）。
+    private let minFontSize: CGFloat = NSFont.systemFontSize
+    /// 拡大時の上限
+    private let maxFontSize: CGFloat = 48
+    /// 1 操作あたりの増減幅
+    private let fontStep: CGFloat = 1
+    /// 現在のフォントサイズ
+    private var currentFontSize: CGFloat = NSFont.systemFontSize
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
@@ -61,6 +73,40 @@ final class MdirTerminalView: LocalProcessTerminalView {
         }
     }
 
+    // MARK: - フォントサイズ操作
+
+    /// 等幅フォントを生成（SF Mono 優先、無ければシステム等幅にフォールバック）。
+    private func monospacedFont(ofSize size: CGFloat) -> NSFont {
+        NSFont(name: "SF Mono", size: size)
+            ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    }
+
+    /// OS 標準サイズのフォントを適用する。ビュー生成直後に一度呼ぶ。
+    func applyDefaultFont() {
+        currentFontSize = minFontSize
+        font = monospacedFont(ofSize: currentFontSize)
+    }
+
+    /// フォントサイズを 1 段階拡大する（上限あり）。
+    func increaseFontSize() {
+        setFontSize(currentFontSize + fontStep)
+    }
+
+    /// フォントサイズを 1 段階縮小する（OS 標準サイズが下限）。
+    func decreaseFontSize() {
+        setFontSize(currentFontSize - fontStep)
+    }
+
+    /// フォントサイズを下限〜上限にクランプして適用する。
+    /// `font` の設定で SwiftTerm がセル寸法を再計算し、PTY のサイズ
+    /// （rows/cols）も追従するため、mdir 本体も自動で再描画される。
+    private func setFontSize(_ size: CGFloat) {
+        let clamped = min(maxFontSize, max(minFontSize, size))
+        guard clamped != currentFontSize else { return }
+        currentFontSize = clamped
+        font = monospacedFont(ofSize: clamped)
+    }
+
     /// キーイベントを横取りし、ナビゲーション中の英字・記号キーを ASCII として
     /// 直接プロセスへ送る。消費した場合は nil を返し（IME へ渡さない）、
     /// それ以外は元のイベントをそのまま通常経路へ流す。
@@ -69,6 +115,25 @@ final class MdirTerminalView: LocalProcessTerminalView {
         guard let window, window.isKeyWindow, window.firstResponder === self else {
             return event
         }
+
+        // フォントサイズ変更（Cmd + "+"/"-"）。
+        // キーボード配列（JIS/ANSI）で +/-/= の物理キー位置が異なるため、
+        // 物理キーコードではなく「実際に生成される文字」で判定する。
+        // Cmd 併用時は IME が合成しないため、`characters` は配列・Shift を反映した
+        // ASCII 記号になり、ローマ字日本語入力モードでも確実に効く。
+        // 例: ANSI Cmd+= / Cmd+Shift+=（＝Cmd++）、JIS Cmd+Shift+;（＝+）、テンキー +/- 等。
+        if event.modifierFlags.contains(.command) {
+            let produced = (event.characters ?? "") + (event.charactersIgnoringModifiers ?? "")
+            if produced.contains("+") || produced.contains("=") {
+                increaseFontSize()
+                return nil
+            }
+            if produced.contains("-") || produced.contains("_") {
+                decreaseFontSize()
+                return nil
+            }
+        }
+
         // テキスト入力中は通常の IME 経路に委ねる
         if imeAllowed {
             return event
