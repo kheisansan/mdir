@@ -1,0 +1,9 @@
+<Application x:Class="MdirWin.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <SolidColorBrush x:Key="AccentBrush" Color="#0A5FBF"/>
+        <SolidColorBrush x:Key="PaneInactiveBorder" Color="#C8C8C8"/>
+    </Application.Resources>
+</Application>

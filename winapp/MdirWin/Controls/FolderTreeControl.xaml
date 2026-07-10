@@ -1,0 +1,23 @@
+<UserControl x:Class="MdirWin.Controls.FolderTreeControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <TreeView x:Name="Tree"
+              BorderThickness="0"
+              TreeViewItem.Expanded="Tree_ItemExpanded"
+              SelectedItemChanged="Tree_SelectedItemChanged"
+              PreviewMouseRightButtonDown="Tree_PreviewMouseRightButtonDown">
+        <TreeView.ContextMenu>
+            <ContextMenu Opened="ContextMenu_Opened">
+                <MenuItem x:Name="MenuNewSubfolder" Header="サブフォルダの作成" Click="MenuNewSubfolder_Click"/>
+                <MenuItem x:Name="MenuRename" Header="フォルダ名の変更" Click="MenuRename_Click"/>
+                <MenuItem x:Name="MenuDelete" Header="フォルダの削除" Click="MenuDelete_Click"/>
+                <Separator/>
+                <MenuItem x:Name="MenuCopyFolder" Header="フォルダのコピー" Click="MenuCopyFolder_Click"/>
+                <MenuItem x:Name="MenuCopyName" Header="フォルダ名のコピー" Click="MenuCopyName_Click"/>
+                <MenuItem x:Name="MenuCopyFullPath" Header="フォルダのフルパスのコピー" Click="MenuCopyFullPath_Click"/>
+                <Separator/>
+                <MenuItem x:Name="MenuPaste" Header="コピーしたフォルダまたはファイルの貼り付け" Click="MenuPaste_Click"/>
+            </ContextMenu>
+        </TreeView.ContextMenu>
+    </TreeView>
+</UserControl>

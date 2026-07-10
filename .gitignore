@@ -4,6 +4,11 @@ dirtools/dist/
 **/*.rs.bk
 *.pdb
 
+# .NET (winapp)
+winapp/**/bin/
+winapp/**/obj/
+winapp/dist/
+
 # macOS
 .DS_Store
 **/.DS_Store

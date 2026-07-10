@@ -1,0 +1,89 @@
+<UserControl x:Class="MdirWin.Controls.FilePaneControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:MdirWin.Controls">
+    <Border x:Name="PaneBorder" BorderThickness="2" BorderBrush="{StaticResource PaneInactiveBorder}">
+        <DockPanel>
+            <DockPanel DockPanel.Dock="Top" Margin="4">
+                <Button x:Name="UpButton" DockPanel.Dock="Left" Content="↑" Width="28" Margin="0,0,4,0"
+                        Focusable="False" ToolTip="親フォルダへ (h / BS)" Click="UpButton_Click"/>
+                <TextBox x:Name="PathBox" VerticalContentAlignment="Center" KeyDown="PathBox_KeyDown"/>
+            </DockPanel>
+            <Border DockPanel.Dock="Bottom" Background="#F0F3F6">
+                <DockPanel Margin="6,2">
+                    <TextBlock x:Name="BranchText" DockPanel.Dock="Right" Foreground="#1B7A3D" FontSize="11" FontWeight="Bold"/>
+                    <TextBlock x:Name="StatusText" Foreground="Gray" FontSize="11"/>
+                </DockPanel>
+            </Border>
+            <ListView x:Name="FileList"
+                      SelectionMode="Extended"
+                      BorderThickness="0"
+                      IsTextSearchEnabled="False"
+                      GotKeyboardFocus="FileList_GotKeyboardFocus"
+                      PreviewMouseDown="FileList_PreviewMouseDown"
+                      MouseDoubleClick="FileList_MouseDoubleClick">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsMarked}" Value="True">
+                                <Setter Property="Foreground" Value="#C05000"/>
+                                <Setter Property="FontWeight" Value="Bold"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="" Width="24" DisplayMemberBinding="{Binding MarkText}"/>
+                        <GridViewColumn Header="名前" Width="240">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding Icon}" Margin="0,0,6,0"/>
+                                        <TextBlock Text="{Binding Name}"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                        <GridViewColumn Header="サイズ" Width="90">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding SizeText}" HorizontalAlignment="Right" TextAlignment="Right" Width="70"/>
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                        <GridViewColumn Header="更新日時" Width="130" DisplayMemberBinding="{Binding ModifiedText}"/>
+                    </GridView>
+                </ListView.View>
+                <ListView.ContextMenu>
+                    <ContextMenu Opened="ContextMenu_Opened">
+                        <MenuItem x:Name="MenuOpen" Header="開く" InputGestureText="Enter / l" Click="MenuOpen_Click"/>
+                        <MenuItem x:Name="MenuInfo" Header="ファイル情報" InputGestureText="i" Click="MenuInfo_Click"/>
+                        <Separator/>
+                        <MenuItem x:Name="MenuCopy" Header="コピー" InputGestureText="Ctrl+C" Click="MenuCopy_Click"/>
+                        <MenuItem x:Name="MenuCut" Header="切り取り" InputGestureText="Ctrl+X" Click="MenuCut_Click"/>
+                        <MenuItem x:Name="MenuPaste" Header="貼り付け" InputGestureText="Ctrl+V" Click="MenuPaste_Click"/>
+                        <Separator/>
+                        <MenuItem x:Name="MenuCopyToOther" Header="反対ペインへコピー" InputGestureText="c / F5" Click="MenuCopyToOther_Click"/>
+                        <MenuItem x:Name="MenuMoveToOther" Header="反対ペインへ移動" InputGestureText="m / F6" Click="MenuMoveToOther_Click"/>
+                        <Separator/>
+                        <MenuItem x:Name="MenuRename" Header="名前の変更" InputGestureText="r / F2" Click="MenuRename_Click"/>
+                        <MenuItem x:Name="MenuDelete" Header="削除" InputGestureText="d / Del" Click="MenuDelete_Click"/>
+                        <Separator/>
+                        <MenuItem Header="新規フォルダ" InputGestureText="n / F7" Click="MenuNewFolder_Click"/>
+                        <MenuItem Header="新規ファイル" InputGestureText="t / F4" Click="MenuNewFile_Click"/>
+                        <Separator/>
+                        <MenuItem Header="ソート">
+                            <MenuItem Header="名前" Tag="name" Click="MenuSort_Click"/>
+                            <MenuItem Header="サイズ" Tag="size" Click="MenuSort_Click"/>
+                            <MenuItem Header="更新日時" Tag="date" Click="MenuSort_Click"/>
+                            <MenuItem Header="拡張子" Tag="ext" Click="MenuSort_Click"/>
+                        </MenuItem>
+                        <MenuItem Header="隠しファイル表示切替" InputGestureText="." Click="MenuToggleHidden_Click"/>
+                        <MenuItem Header="最新の情報に更新" InputGestureText="Ctrl+R" Click="MenuRefresh_Click"/>
+                    </ContextMenu>
+                </ListView.ContextMenu>
+            </ListView>
+        </DockPanel>
+    </Border>
+</UserControl>
