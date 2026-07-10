@@ -36,6 +36,16 @@ public partial class FilePaneControl : UserControl
     {
         InitializeComponent();
         FileList.ItemsSource = _entries;
+        // ナビゲーション中は IME を無効化し、h/j/k/l 等が日本語入力モードでも効くようにする
+        InputMethod.SetIsInputMethodEnabled(FileList, false);
+    }
+
+    public void ApplyFontSize(double size)
+    {
+        FileList.FontSize = size;
+        PathBox.FontSize = size;
+        StatusText.FontSize = Math.Max(9, size - 2);
+        BranchText.FontSize = Math.Max(9, size - 2);
     }
 
     public void SetActive(bool active)
@@ -94,6 +104,7 @@ public partial class FilePaneControl : UserControl
             PathBox.Text = full;
             CurrentBranch = GitHelper.GetBranchName(full);
             UpdateStatus();
+            (Window.GetWindow(this) as MainWindow)?.NotifyActivePaneBranchChanged();
 
             var restored = keepName != null
                 ? _entries.FirstOrDefault(e => e.Name == keepName)
@@ -237,8 +248,6 @@ public partial class FilePaneControl : UserControl
 
     private Window OwnerWindow => Window.GetWindow(this)!;
 
-    // ---- クリップボード ----
-
     public void CopySelectionToClipboard(bool cut)
     {
         var selected = TargetEntries();
@@ -246,6 +255,30 @@ public partial class FilePaneControl : UserControl
             return;
         ClipboardHelper.SetFileDropList(selected.Select(s => s.FullPath), cut);
         ToastWindow.Show(cut ? "切り取り" : "コピー", $"{selected.Count} 件をクリップボードに入れました");
+    }
+
+    /// <summary>現在表示中のフォルダ名をクリップボードへコピー（1 キー）。</summary>
+    public void CopyFileNameToClipboard()
+    {
+        if (string.IsNullOrEmpty(CurrentPath))
+            return;
+
+        var name = Path.GetFileName(Path.TrimEndingDirectorySeparator(CurrentPath));
+        if (string.IsNullOrEmpty(name))
+            name = CurrentPath;
+
+        Clipboard.SetText(name);
+        ToastWindow.Show("コピー", $"フォルダ名をコピーしました: {name}", seconds: 2);
+    }
+
+    /// <summary>現在表示中のフォルダのフルパスをクリップボードへコピー（2 キー）。</summary>
+    public void CopyFullPathToClipboard()
+    {
+        if (string.IsNullOrEmpty(CurrentPath))
+            return;
+
+        Clipboard.SetText(CurrentPath);
+        ToastWindow.Show("コピー", $"フォルダのフルパスをコピーしました:\n{CurrentPath}", seconds: 2);
     }
 
     public void PasteFromClipboard()

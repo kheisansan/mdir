@@ -31,12 +31,16 @@ public partial class FolderTreeControl : UserControl
     public void LoadRoots()
     {
         Tree.Items.Clear();
-        foreach (var drive in DriveInfo.GetDrives().Where(d => d.IsReady))
+        foreach (var drive in DriveInfo.GetDrives())
         {
-            var label = string.IsNullOrEmpty(drive.VolumeLabel)
-                ? drive.Name
-                : $"{drive.Name.TrimEnd('\\')} ({drive.VolumeLabel})";
-            var item = CreateItem(label, drive.RootDirectory.FullName, "💾");
+            var ready = drive.IsReady;
+            var label = ready
+                ? (string.IsNullOrEmpty(drive.VolumeLabel)
+                    ? drive.Name
+                    : $"{drive.Name.TrimEnd('\\')} ({drive.VolumeLabel})")
+                : $"{drive.Name.TrimEnd('\\')} (準備できていません)";
+            var path = drive.Name;
+            var item = CreateItem(label, path, ready ? "💾" : "⏸", enabled: ready);
             Tree.Items.Add(item);
         }
     }
@@ -78,7 +82,7 @@ public partial class FolderTreeControl : UserControl
     /// <summary>指定パスまでツリーを展開する（存在すれば選択も行う）。</summary>
     public void ExpandToPath(string path, bool select)
     {
-        var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        var full = PathHelper.Normalize(path);
         TreeViewItem? current = null;
         var items = Tree.Items;
 
@@ -87,11 +91,10 @@ public partial class FolderTreeControl : UserControl
             TreeViewItem? next = null;
             foreach (var obj in items)
             {
-                if (obj is TreeViewItem { Tag: string itemPath } item)
+                if (obj is TreeViewItem { Tag: string itemPath, IsEnabled: true } item)
                 {
-                    var trimmed = Path.TrimEndingDirectorySeparator(itemPath);
-                    if (string.Equals(trimmed, full, StringComparison.OrdinalIgnoreCase) ||
-                        full.StartsWith(trimmed + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    var trimmed = PathHelper.Normalize(itemPath);
+                    if (PathHelper.IsSameOrChild(trimmed, full))
                     {
                         next = item;
                         break;
@@ -103,7 +106,7 @@ public partial class FolderTreeControl : UserControl
                 break;
 
             current = next;
-            var currentPath = Path.TrimEndingDirectorySeparator((string)current.Tag);
+            var currentPath = PathHelper.Normalize((string)current.Tag);
             if (string.Equals(currentPath, full, StringComparison.OrdinalIgnoreCase))
                 break;
 
@@ -128,16 +131,25 @@ public partial class FolderTreeControl : UserControl
         }
     }
 
-    private TreeViewItem CreateItem(string name, string path, string icon = "📁")
+    private TreeViewItem CreateItem(string name, string path, string icon = "📁", bool enabled = true)
     {
         var header = new StackPanel { Orientation = Orientation.Horizontal };
         header.Children.Add(new TextBlock { Text = icon, Margin = new Thickness(0, 0, 4, 0) });
-        header.Children.Add(new TextBlock { Text = name });
+        header.Children.Add(new TextBlock
+        {
+            Text = name,
+            Foreground = enabled ? Brushes.Black : Brushes.Gray,
+        });
 
-        var item = new TreeViewItem { Header = header, Tag = path };
-        if (HasSubdirectories(path))
+        var item = new TreeViewItem { Header = header, Tag = path, IsEnabled = enabled };
+        if (enabled && HasSubdirectories(path))
             item.Items.Add(LoadingPlaceholder);
         return item;
+    }
+
+    public void ApplyFontSize(double size)
+    {
+        Tree.FontSize = size;
     }
 
     private static bool HasSubdirectories(string path)
@@ -213,7 +225,7 @@ public partial class FolderTreeControl : UserControl
         var path = SelectedPath;
         var hasSelection = path != null;
         // ドライブルートは名前変更・削除・コピー不可
-        var isDriveRoot = hasSelection && string.Equals(Path.GetPathRoot(path!), path, StringComparison.OrdinalIgnoreCase);
+        var isDriveRoot = hasSelection && PathHelper.IsDriveRoot(path!);
 
         MenuNewSubfolder.IsEnabled = hasSelection;
         MenuRename.IsEnabled = hasSelection && !isDriveRoot;

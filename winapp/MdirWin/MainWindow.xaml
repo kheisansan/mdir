@@ -4,99 +4,176 @@
         xmlns:controls="clr-namespace:MdirWin.Controls"
         Title="Mdir for Windows" Width="1400" Height="850"
         WindowStartupLocation="CenterScreen">
-    <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+    <DockPanel>
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="ファイル(_F)">
+                <MenuItem Header="最新の情報に更新" InputGestureText="Ctrl+R" Click="MenuRefresh_Click"/>
+                <Separator/>
+                <MenuItem Header="終了" InputGestureText=":q" Click="MenuQuit_Click"/>
+            </MenuItem>
+            <MenuItem Header="編集(_E)">
+                <MenuItem Header="コピー" InputGestureText="Ctrl+C" Click="MenuCopy_Click"/>
+                <MenuItem Header="切り取り" InputGestureText="Ctrl+X" Click="MenuCut_Click"/>
+                <MenuItem Header="貼り付け" InputGestureText="Ctrl+V" Click="MenuPaste_Click"/>
+                <Separator/>
+                <MenuItem Header="フォルダ名をコピー" InputGestureText="1" Click="MenuCopyFileName_Click"/>
+                <MenuItem Header="フォルダのフルパスをコピー" InputGestureText="2" Click="MenuCopyFullPath_Click"/>
+            </MenuItem>
+            <MenuItem Header="ナビゲーション(_N)">
+                <MenuItem Header="親フォルダへ" InputGestureText="h" Click="MenuGoParent_Click"/>
+                <MenuItem Header="ホームフォルダへ" InputGestureText="~" Click="MenuGoHome_Click"/>
+                <Separator/>
+                <MenuItem Header="左ペインをアクティブに" Click="MenuActivateLeft_Click"/>
+                <MenuItem Header="右ペインをアクティブに" Click="MenuActivateRight_Click"/>
+            </MenuItem>
+            <MenuItem Header="操作(_O)">
+                <MenuItem Header="反対ペインへコピー" InputGestureText="c / F5" Click="MenuCopyToOther_Click"/>
+                <MenuItem Header="反対ペインへ移動" InputGestureText="m / F6" Click="MenuMoveToOther_Click"/>
+                <MenuItem Header="削除" InputGestureText="d / Del" Click="MenuDelete_Click"/>
+                <MenuItem Header="名前の変更" InputGestureText="r / F2" Click="MenuRename_Click"/>
+                <MenuItem Header="新規フォルダ" InputGestureText="n / F7" Click="MenuNewFolder_Click"/>
+                <MenuItem Header="新規ファイル" InputGestureText="t / F4" Click="MenuNewFile_Click"/>
+                <Separator/>
+                <MenuItem Header="ソート">
+                    <MenuItem Header="名前" Tag="name" Click="MenuSort_Click"/>
+                    <MenuItem Header="サイズ" Tag="size" Click="MenuSort_Click"/>
+                    <MenuItem Header="更新日時" Tag="date" Click="MenuSort_Click"/>
+                    <MenuItem Header="拡張子" Tag="ext" Click="MenuSort_Click"/>
+                </MenuItem>
+                <MenuItem Header="隠しファイル表示切替" InputGestureText="." Click="MenuToggleHidden_Click"/>
+                <MenuItem Header="ファイル情報" InputGestureText="i" Click="MenuFileInfo_Click"/>
+                <MenuItem Header="Git Pull" InputGestureText="y" Click="MenuGitPull_Click"/>
+            </MenuItem>
+            <MenuItem Header="表示(_V)">
+                <MenuItem Header="フォントを拡大" InputGestureText="Ctrl++" Click="MenuFontIncrease_Click"/>
+                <MenuItem Header="フォントを縮小" InputGestureText="Ctrl+-" Click="MenuFontDecrease_Click"/>
+                <MenuItem Header="フォントをリセット" InputGestureText="Ctrl+0" Click="MenuFontReset_Click"/>
+            </MenuItem>
+            <MenuItem Header="同期(_S)">
+                <MenuItem Header="コピー元 → コピー先（強制上書き）" InputGestureText="Win+Ctrl+Shift+[" Click="MenuMirrorForward_Click"/>
+                <MenuItem Header="コピー先 → コピー元（強制上書き）" InputGestureText="Win+Ctrl+Shift+]" Click="MenuMirrorBackward_Click"/>
+            </MenuItem>
+            <MenuItem Header="ヘルプ(_H)">
+                <MenuItem Header="キーバインド一覧" InputGestureText=":help" Click="MenuHelp_Click"/>
+            </MenuItem>
+        </Menu>
 
-        <Grid Grid.Row="0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="260" MinWidth="180"/>
-                <ColumnDefinition Width="4"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="4"/>
-                <ColumnDefinition Width="220" MinWidth="160"/>
-            </Grid.ColumnDefinitions>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
 
-            <!-- 左サイドバー -->
-            <Grid Grid.Column="0" Background="#F4F6F8">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-
-                <!-- 1. フォルダツリー（左ペイン用） -->
-                <DockPanel Grid.Row="0">
-                    <TextBlock DockPanel.Dock="Top" Text="フォルダツリー（左ペイン）" FontWeight="Bold" Margin="8,8,8,4"/>
-                    <controls:FolderTreeControl x:Name="LeftTree" Margin="4,0,4,4"/>
-                </DockPanel>
-
-                <!-- 2. コピー元フォルダ -->
-                <GroupBox Grid.Row="1" Header="コピー元のフォルダ" Margin="8,4">
-                    <DockPanel Margin="4">
-                        <Button x:Name="BrowseSourceButton" DockPanel.Dock="Right" Content="Browse..." Width="70"
-                                Margin="6,0,0,0" Focusable="False" Click="BrowseSource_Click"/>
-                        <TextBox x:Name="SourceFolderBox" VerticalContentAlignment="Center" IsReadOnly="True"
-                                 Focusable="False" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
-                    </DockPanel>
-                </GroupBox>
-
-                <!-- 3. コピー先フォルダ -->
-                <GroupBox Grid.Row="2" Header="コピー先のフォルダ" Margin="8,4,8,8">
-                    <StackPanel Margin="4">
-                        <DockPanel>
-                            <Button x:Name="BrowseDestButton" DockPanel.Dock="Right" Content="Browse..." Width="70"
-                                    Margin="6,0,0,0" Focusable="False" Click="BrowseDest_Click"/>
-                            <TextBox x:Name="DestFolderBox" VerticalContentAlignment="Center" IsReadOnly="True"
-                                     Focusable="False" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
-                        </DockPanel>
-                        <TextBlock Margin="0,8,0,0" Foreground="Gray" FontSize="11" TextWrapping="Wrap"
-                                   Text="Win+Ctrl+Shift+[ : コピー元 → コピー先へ強制上書きコピー&#10;Win+Ctrl+Shift+] : コピー先 → コピー元へ強制上書きコピー"/>
-                    </StackPanel>
-                </GroupBox>
-            </Grid>
-
-            <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="#D0D0D0"/>
-
-            <!-- 2ペインファイラー -->
-            <Grid Grid.Column="2">
+            <!-- メインエリア（ツリー + 2ペイン） -->
+            <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="260" MinWidth="180"/>
                     <ColumnDefinition Width="4"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="4"/>
+                    <ColumnDefinition Width="220" MinWidth="160"/>
                 </Grid.ColumnDefinitions>
-                <controls:FilePaneControl x:Name="LeftPane" Grid.Column="0" Margin="2"/>
-                <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="#D0D0D0"/>
-                <controls:FilePaneControl x:Name="RightPane" Grid.Column="2" Margin="2"/>
-            </Grid>
 
-            <GridSplitter Grid.Column="3" HorizontalAlignment="Stretch" Background="#D0D0D0"/>
-
-            <!-- 右サイドバー（右ペイン用ツリー） -->
-            <DockPanel Grid.Column="4" Background="#F4F6F8">
-                <TextBlock DockPanel.Dock="Top" Text="フォルダツリー（右ペイン）" FontWeight="Bold" Margin="8,8,8,4"/>
-                <controls:FolderTreeControl x:Name="RightTree" Margin="4,0,4,4"/>
-            </DockPanel>
-        </Grid>
-
-        <!-- 下部ステータスバー / コマンドライン -->
-        <Border Grid.Row="1" Background="#16212B" MinHeight="26">
-            <Grid>
-                <DockPanel x:Name="StatusBarPanel" Margin="10,4">
-                    <TextBlock x:Name="StatusBranchText" DockPanel.Dock="Right" Foreground="#7EE2A8"
-                               FontWeight="Bold" FontSize="12" Margin="12,0,0,0"/>
-                    <TextBlock DockPanel.Dock="Right" Foreground="#7A8A99" FontSize="11" Margin="12,1,0,0"
-                               Text="h/j/k/l 移動  Space マーク  c/m コピー/移動  d 削除  Tab ペイン切替  : コマンド"/>
-                    <TextBlock x:Name="StatusPathText" Foreground="#E8EEF4" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                <DockPanel Grid.Column="0" Background="#F4F6F8">
+                    <TextBlock DockPanel.Dock="Top" x:Name="LeftTreeLabel" Text="フォルダツリー（左ペイン）"
+                               FontWeight="Bold" Margin="8,8,8,4"/>
+                    <controls:FolderTreeControl x:Name="LeftTree" Margin="4,0,4,8"/>
                 </DockPanel>
-                <TextBox x:Name="CommandBox" Visibility="Collapsed"
-                         Background="#16212B" Foreground="#E8EEF4" CaretBrush="#E8EEF4"
-                         BorderThickness="0" FontFamily="Consolas" FontSize="13"
-                         VerticalContentAlignment="Center" Padding="8,2"
-                         PreviewKeyDown="CommandBox_PreviewKeyDown"/>
+
+                <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="#D0D0D0"/>
+
+                <Grid Grid.Column="2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="4"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <controls:FilePaneControl x:Name="LeftPane" Grid.Column="0" Margin="2"/>
+                    <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="#D0D0D0"/>
+                    <controls:FilePaneControl x:Name="RightPane" Grid.Column="2" Margin="2"/>
+                </Grid>
+
+                <GridSplitter Grid.Column="3" HorizontalAlignment="Stretch" Background="#D0D0D0"/>
+
+                <DockPanel Grid.Column="4" Background="#F4F6F8">
+                    <TextBlock DockPanel.Dock="Top" x:Name="RightTreeLabel" Text="フォルダツリー（右ペイン）"
+                               FontWeight="Bold" Margin="8,8,8,4"/>
+                    <controls:FolderTreeControl x:Name="RightTree" Margin="4,0,4,8"/>
+                </DockPanel>
             </Grid>
-        </Border>
-    </Grid>
+
+            <!-- コピー元・コピー先（下部） -->
+            <Border Grid.Row="1" Background="#F4F6F8" BorderBrush="#D0D0D0" BorderThickness="0,1,0,0">
+                <Grid Margin="8,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="12"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <GroupBox Grid.Column="0" x:Name="SourceGroupBox" Header="コピー元のフォルダ">
+                        <StackPanel Margin="4">
+                            <DockPanel>
+                                <Button x:Name="BrowseSourceButton" DockPanel.Dock="Right" Content="Browse..."
+                                        MinWidth="70" Margin="6,0,0,0" Focusable="False" Click="BrowseSource_Click"/>
+                                <TextBox x:Name="SourceFolderBox" VerticalContentAlignment="Center" IsReadOnly="True"
+                                         Focusable="False" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                            </DockPanel>
+                            <TextBlock x:Name="SourceFavLabel" Text="★ お気に入り" FontWeight="Bold" Margin="0,6,0,2"/>
+                            <ListBox x:Name="SourceFavoritesList" DisplayMemberPath="."
+                                     SelectionChanged="SourceFavoritesList_SelectionChanged"
+                                     PreviewMouseRightButtonDown="FolderList_PreviewMouseRightButtonDown"
+                                     Tag="source-fav"/>
+                            <TextBlock x:Name="SourceHistLabel" Text="履歴" FontWeight="Bold" Margin="0,4,0,2"/>
+                            <ListBox x:Name="SourceHistoryList" DisplayMemberPath="."
+                                     SelectionChanged="SourceHistoryList_SelectionChanged"
+                                     PreviewMouseRightButtonDown="FolderList_PreviewMouseRightButtonDown"
+                                     Tag="source-hist"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Grid.Column="2" x:Name="DestGroupBox" Header="コピー先のフォルダ">
+                        <StackPanel Margin="4">
+                            <DockPanel>
+                                <Button x:Name="BrowseDestButton" DockPanel.Dock="Right" Content="Browse..."
+                                        MinWidth="70" Margin="6,0,0,0" Focusable="False" Click="BrowseDest_Click"/>
+                                <TextBox x:Name="DestFolderBox" VerticalContentAlignment="Center" IsReadOnly="True"
+                                         Focusable="False" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                            </DockPanel>
+                            <TextBlock x:Name="DestFavLabel" Text="★ お気に入り" FontWeight="Bold" Margin="0,6,0,2"/>
+                            <ListBox x:Name="DestFavoritesList" DisplayMemberPath="."
+                                     SelectionChanged="DestFavoritesList_SelectionChanged"
+                                     PreviewMouseRightButtonDown="FolderList_PreviewMouseRightButtonDown"
+                                     Tag="dest-fav"/>
+                            <TextBlock x:Name="DestHistLabel" Text="履歴" FontWeight="Bold" Margin="0,4,0,2"/>
+                            <ListBox x:Name="DestHistoryList" DisplayMemberPath="."
+                                     SelectionChanged="DestHistoryList_SelectionChanged"
+                                     PreviewMouseRightButtonDown="FolderList_PreviewMouseRightButtonDown"
+                                     Tag="dest-hist"/>
+                            <TextBlock x:Name="MirrorShortcutHint" Margin="0,6,0,0" Foreground="Gray" TextWrapping="Wrap"
+                                       Text="Win+Ctrl+Shift+[ : コピー元 → コピー先へ強制上書きコピー&#10;Win+Ctrl+Shift+] : コピー先 → コピー元へ強制上書きコピー"/>
+                        </StackPanel>
+                    </GroupBox>
+                </Grid>
+            </Border>
+
+            <!-- ステータスバー / コマンドライン -->
+            <Border Grid.Row="2" Background="#16212B" MinHeight="26">
+                <Grid>
+                    <DockPanel x:Name="StatusBarPanel" Margin="10,4">
+                        <TextBlock x:Name="StatusHintText" DockPanel.Dock="Right" Foreground="#7A8A99"
+                                   Margin="12,1,0,0"
+                                   Text="h/j/k/l 移動  Space マーク  c/m コピー/移動  d 削除  Tab ペイン切替  : コマンド"/>
+                        <TextBlock x:Name="StatusPathText" Foreground="#E8EEF4" TextTrimming="CharacterEllipsis"/>
+                    </DockPanel>
+                    <TextBox x:Name="CommandBox" Visibility="Collapsed"
+                             Background="#16212B" Foreground="#E8EEF4" CaretBrush="#E8EEF4"
+                             BorderThickness="0" FontFamily="Consolas"
+                             VerticalContentAlignment="Center" Padding="8,2"
+                             PreviewKeyDown="CommandBox_PreviewKeyDown"/>
+                </Grid>
+            </Border>
+        </Grid>
+    </DockPanel>
 </Window>

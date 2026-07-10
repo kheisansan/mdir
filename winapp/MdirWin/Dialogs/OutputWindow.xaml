@@ -2,12 +2,14 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="出力" Width="700" Height="480"
-        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        PreviewKeyDown="Window_PreviewKeyDown">
     <DockPanel Margin="8">
-        <Button DockPanel.Dock="Bottom" Content="閉じる" Width="90" HorizontalAlignment="Right"
-                Margin="0,8,0,0" IsCancel="True" IsDefault="True"/>
+        <Button x:Name="CloseButton" DockPanel.Dock="Bottom" Content="閉じる" Width="90" HorizontalAlignment="Right"
+                Margin="0,8,0,0" IsCancel="True" Click="CloseButton_Click"/>
         <TextBox x:Name="OutputBox" IsReadOnly="True" FontFamily="Consolas" FontSize="13"
                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
-                 TextWrapping="NoWrap" AcceptsReturn="True" Background="#1E1E1E" Foreground="#DCDCDC"/>
+                 TextWrapping="NoWrap" AcceptsReturn="True" Background="#1E1E1E" Foreground="#DCDCDC"
+                 Focusable="False"/>
     </DockPanel>
 </Window>
