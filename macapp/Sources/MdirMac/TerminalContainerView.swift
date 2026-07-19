@@ -8,6 +8,10 @@ import SwiftTerm
 struct TerminalContainerView: NSViewRepresentable {
     /// `mdir` 本体がモードを通知してくる私的 OSC コード（ime.rs と一致させる）
     static let modeOscCode = 5379
+    /// `mdir` 本体がアクティブペインを通知してくる私的 OSC コード（ime.rs と一致させる）
+    static let activePaneOscCode = 5380
+
+    @EnvironmentObject private var controller: MdirController
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -18,6 +22,7 @@ struct TerminalContainerView: NSViewRepresentable {
             frame: NSRect(x: 0, y: 0, width: 1000, height: 680)
         )
         terminal.processDelegate = context.coordinator
+        controller.attach(terminal: terminal)
 
         // 初期フォントは OS 標準サイズ（= 最小サイズ）。
         // 以降は Cmd + "+"/"-" で拡大・縮小できる（MdirTerminalView 側で処理）。
@@ -30,6 +35,16 @@ struct TerminalContainerView: NSViewRepresentable {
             let allowIme = data.first == UInt8(ascii: "1")
             DispatchQueue.main.async {
                 terminal?.imeAllowed = allowIme
+            }
+        }
+
+        // mdir 本体からのアクティブペイン通知 OSC を受け取り、メニューバー/
+        // サイドバーがペイン指定操作の前に Tab 送出要否を判断できるようにする。
+        // ペイロード "L" = 左ペイン、"R" = 右ペイン。
+        terminal.getTerminal().registerOscHandler(code: Self.activePaneOscCode) { [weak controller] data in
+            guard let raw = data.first, let side = PaneSide(rawValue: String(UnicodeScalar(raw))) else { return }
+            DispatchQueue.main.async {
+                controller?.handleActivePaneReport(side)
             }
         }
 

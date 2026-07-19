@@ -45,6 +45,10 @@ final class MdirTerminalView: LocalProcessTerminalView {
     /// 現在のフォントサイズ
     private var currentFontSize: CGFloat = NSFont.systemFontSize
 
+    /// フォントサイズが変化するたびに呼ばれる。サイドバー/ミラーコピーパネルの
+    /// SwiftUI 側フォントサイズを追従させるために `MdirController` が購読する。
+    var onFontSizeChange: ((CGFloat) -> Void)?
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
@@ -85,6 +89,7 @@ final class MdirTerminalView: LocalProcessTerminalView {
     func applyDefaultFont() {
         currentFontSize = minFontSize
         font = monospacedFont(ofSize: currentFontSize)
+        onFontSizeChange?(currentFontSize)
     }
 
     /// フォントサイズを 1 段階拡大する（上限あり）。
@@ -97,6 +102,12 @@ final class MdirTerminalView: LocalProcessTerminalView {
         setFontSize(currentFontSize - fontStep)
     }
 
+    /// フォントサイズを OS 標準サイズにリセットする。
+    /// SwiftTerm 側に同名 `resetFontSize()` があり衝突するため別名にしている。
+    func resetToDefaultFontSize() {
+        setFontSize(minFontSize)
+    }
+
     /// フォントサイズを下限〜上限にクランプして適用する。
     /// `font` の設定で SwiftTerm がセル寸法を再計算し、PTY のサイズ
     /// （rows/cols）も追従するため、mdir 本体も自動で再描画される。
@@ -105,6 +116,7 @@ final class MdirTerminalView: LocalProcessTerminalView {
         guard clamped != currentFontSize else { return }
         currentFontSize = clamped
         font = monospacedFont(ofSize: clamped)
+        onFontSizeChange?(clamped)
     }
 
     /// キーイベントを横取りし、ナビゲーション中の英字・記号キーを ASCII として

@@ -12,6 +12,10 @@ use crate::fs::operations::{self, ConflictResolution};
 use crate::fs::PaneState;
 use crate::mode::AppMode;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Instant;
 
 // ---------------------------------------------------------------------------
@@ -207,6 +211,17 @@ pub enum DialogState {
         is_move: bool,
         /// 0=上書き 1=リネームしてコピー/移動 2=キャンセル
         focus: usize,
+    },
+    /// 合計サイズが大きいコピー/移動をバックグラウンドスレッドで実行中の進捗表示。
+    /// 実際のファイル I/O は別スレッドで行われ、この状態は共有カウンタを介して
+    /// 進捗を覗き見るだけ（App::poll_background_copy が毎フレーム完了を確認する）。
+    Progress {
+        total_bytes: u64,
+        copied_bytes: Arc<AtomicU64>,
+        current_file: Arc<Mutex<String>>,
+        cancel: Arc<AtomicBool>,
+        result_rx: mpsc::Receiver<Result<usize, String>>,
+        is_move: bool,
     },
 }
 
@@ -407,6 +422,7 @@ impl App {
     /// 単体動作時は ASCII モードを強制する。
     pub fn apply_action(&mut self, action: Action) -> Result<(), AppError> {
         let was_text_input = self.wants_text_input();
+        let was_active_pane = self.active_pane;
         let result = self.apply_action_inner(action);
         let is_text_input = self.wants_text_input();
         if was_text_input != is_text_input {
@@ -416,6 +432,11 @@ impl App {
             if !is_text_input {
                 crate::ime::force_ascii();
             }
+        }
+        if was_active_pane != self.active_pane {
+            // ネイティブホスト下ではメニューバー/サイドバーがペイン指定操作の前に
+            // Tab 送出要否を判断できるよう、アクティブペイン変化を OSC で通知する。
+            crate::ime::report_active_pane(self.active_pane);
         }
         result
     }
@@ -749,8 +770,15 @@ impl App {
             }
             Action::DialogConfirm => self.handle_dialog_confirm()?,
             Action::DialogCancel => {
-                self.dialog = None;
-                self.mode = AppMode::Normal;
+                if let Some(DialogState::Progress { cancel, .. }) = &self.dialog {
+                    // バックグラウンドスレッドにキャンセルを伝えるだけ。
+                    // ダイアログを閉じるのは poll_background_copy が完了通知を
+                    // 受け取ってから（スレッドがまだファイル I/O 中のため）。
+                    cancel.store(true, Ordering::Relaxed);
+                } else {
+                    self.dialog = None;
+                    self.mode = AppMode::Normal;
+                }
             }
             Action::DialogConflictNext => {
                 if let Some(DialogState::CopyMoveConflict { focus, .. }) = &mut self.dialog {
@@ -893,6 +921,13 @@ impl App {
             });
             return Ok(());
         }
+
+        let total_bytes = operations::total_size(&sources);
+        if total_bytes >= operations::LARGE_COPY_THRESHOLD_BYTES {
+            self.start_background_copy(sources, dest_dir, total_bytes, false);
+            return Ok(());
+        }
+
         let count = operations::copy_files(&sources, &dest_dir, &|_| ConflictResolution::Overwrite)?;
         self.active_pane_mut().clear_marks();
         self.opposite_pane_mut().refresh()?;
@@ -922,12 +957,91 @@ impl App {
             });
             return Ok(());
         }
+
+        let total_bytes = operations::total_size(&sources);
+        if total_bytes >= operations::LARGE_COPY_THRESHOLD_BYTES {
+            self.start_background_copy(sources, dest_dir, total_bytes, true);
+            return Ok(());
+        }
+
         let count = operations::move_files(&sources, &dest_dir, &|_| ConflictResolution::Overwrite)?;
         self.active_pane_mut().clear_marks();
         self.active_pane_mut().refresh()?;
         self.opposite_pane_mut().refresh()?;
         self.show_message(format!("{}件移動しました", count), MessageLevel::Success);
         Ok(())
+    }
+
+    /// 合計サイズが大きいコピー/移動をバックグラウンドスレッドで開始し、
+    /// 進捗ダイアログを表示する。実ファイル I/O はスレッド内で完結し、
+    /// `App` 自体は触らない（進捗は共有カウンタ、完了通知は mpsc チャンネル経由）。
+    fn start_background_copy(&mut self, sources: Vec<PathBuf>, dest_dir: PathBuf, total_bytes: u64, is_move: bool) {
+        let copied_bytes = Arc::new(AtomicU64::new(0));
+        let current_file = Arc::new(Mutex::new(String::new()));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = mpsc::channel();
+
+        let copied_for_thread = Arc::clone(&copied_bytes);
+        let current_for_thread = Arc::clone(&current_file);
+        let cancel_for_thread = Arc::clone(&cancel);
+        thread::spawn(move || {
+            let on_progress = |delta: u64, name: &str| {
+                copied_for_thread.fetch_add(delta, Ordering::Relaxed);
+                if let Ok(mut cur) = current_for_thread.lock() {
+                    *cur = name.to_string();
+                }
+                !cancel_for_thread.load(Ordering::Relaxed)
+            };
+            let result = if is_move {
+                operations::move_files_with_progress(&sources, &dest_dir, &on_progress)
+            } else {
+                operations::copy_files_with_progress(&sources, &dest_dir, &on_progress)
+            };
+            let _ = tx.send(result.map_err(|e| e.user_message()));
+        });
+
+        self.mode = AppMode::Dialog;
+        self.dialog = Some(DialogState::Progress {
+            total_bytes,
+            copied_bytes,
+            current_file,
+            cancel,
+            result_rx: rx,
+            is_move,
+        });
+    }
+
+    /// バックグラウンドコピー/移動が完了していないか毎フレーム確認する。
+    /// メインループから毎チック呼ばれる（`main.rs::run_main_loop`）。
+    pub fn poll_background_copy(&mut self) {
+        let outcome = if let Some(DialogState::Progress { result_rx, is_move, .. }) = &self.dialog {
+            match result_rx.try_recv() {
+                Ok(result) => Some((result, *is_move)),
+                Err(mpsc::TryRecvError::Empty) => None,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    Some((Err("コピー処理が異常終了しました".to_string()), *is_move))
+                }
+            }
+        } else {
+            None
+        };
+
+        let Some((result, is_move)) = outcome else { return };
+
+        self.dialog = None;
+        self.mode = AppMode::Normal;
+        match result {
+            Ok(count) => {
+                self.active_pane_mut().clear_marks();
+                let _ = self.active_pane_mut().refresh();
+                let _ = self.opposite_pane_mut().refresh();
+                let verb = if is_move { "移動" } else { "コピー" };
+                self.show_message(format!("{}件{}しました", count, verb), MessageLevel::Success);
+            }
+            Err(message) => {
+                self.show_message(message, MessageLevel::Error);
+            }
+        }
     }
 
     /// 同名を避けるためのユニークなパスを生成（例: file.txt → file (1).txt）
@@ -1220,6 +1334,9 @@ impl App {
                         }
                     }
                 }
+            }
+            Some(DialogState::Progress { .. }) => {
+                // 進捗ダイアログは Enter で確定する操作を持たない（Esc でのキャンセルのみ）
             }
             None => {}
         }

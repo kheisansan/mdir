@@ -21,6 +21,9 @@ use std::sync::OnceLock;
 /// 通知用の私的 OSC コード（既存ターミナルの OSC と衝突しない値）
 const HOST_OSC_CODE: u32 = 5379;
 
+/// アクティブペイン通知用の私的 OSC コード（macapp/TerminalContainerView.swift と一致させる）
+const ACTIVE_PANE_OSC_CODE: u32 = 5380;
+
 /// SwiftUI ネイティブアプリ (MdirMac) に埋め込まれて動いているか
 fn is_native_host() -> bool {
     static HOST: OnceLock<bool> = OnceLock::new();
@@ -70,6 +73,27 @@ pub fn report_text_input_mode(text_input: bool) {
     let mut out = std::io::stdout();
     // OSC: ESC ] <code> ; <0|1> BEL
     let _ = write!(out, "\x1b]{};{}\x07", HOST_OSC_CODE, if text_input { 1 } else { 0 });
+    let _ = out.flush();
+}
+
+/// 現在アクティブなペイン（"L" = 左 / "R" = 右）をネイティブホスト (Swift 側) に
+/// 私的 OSC シーケンスで通知する。
+///
+/// Swift 側はこれを使って、メニューバーやサイドバーからのペイン指定操作
+/// （「左ペインをアクティブに」「フォルダツリーでの選択」等）の前に
+/// Tab 送出が必要かどうかを判断する。ネイティブホスト以外では何もしない。
+pub fn report_active_pane(side: crate::app::PaneSide) {
+    if !is_native_host() {
+        return;
+    }
+    use crate::app::PaneSide;
+    use std::io::Write;
+    let code = match side {
+        PaneSide::Left => 'L',
+        PaneSide::Right => 'R',
+    };
+    let mut out = std::io::stdout();
+    let _ = write!(out, "\x1b]{};{}\x07", ACTIVE_PANE_OSC_CODE, code);
     let _ = out.flush();
 }
 

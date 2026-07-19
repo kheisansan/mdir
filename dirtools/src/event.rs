@@ -19,7 +19,7 @@
 use crate::app::{Action, App, DialogState, PaneSide};
 use crate::error::AppError;
 use crate::mode::AppMode;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use std::time::{Duration, Instant};
 
 /// イベントポーリングのタイムアウト
@@ -157,6 +157,10 @@ fn handle_key(key: KeyEvent, app: &App) -> Result<Action, AppError> {
 /// - かな文字: JIS かな入力時の各キー位置に対応
 fn handle_normal_key(key: KeyEvent) -> Result<Action, AppError> {
     Ok(match key.code {
+        // === 明示的な再読み込み（Ctrl+R）===
+        // 'r' 単体は RequestRename のため、Ctrl 修飾の有無で先に分岐する。
+        KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => Action::Refresh,
+
         // === ナビゲーション（vi キー + 矢印キー + IME 対策）===
         KeyCode::Char('h') | KeyCode::Backspace | KeyCode::Left => Action::ParentDirectory,
         KeyCode::Char('j') | KeyCode::Down => Action::MoveCursor(1),
@@ -307,6 +311,10 @@ fn handle_dialog_key(key: KeyEvent, app: &App) -> Result<Action, AppError> {
             KeyCode::Enter => Action::DialogConfirm,
             KeyCode::Esc | KeyCode::Char('n') => Action::DialogCancel,
             KeyCode::Char('y') => Action::DialogConfirm, // 現在の focus で確定（0=上書き 1=リネーム 2=キャンセル）
+            _ => Action::Noop,
+        },
+        Some(DialogState::Progress { .. }) => match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => Action::DialogCancel,
             _ => Action::Noop,
         },
         Some(DialogState::BranchList { search_input, .. }) => {

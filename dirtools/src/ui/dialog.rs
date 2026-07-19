@@ -8,12 +8,15 @@
 
 use super::theme;
 use crate::app::DialogState;
+use crate::utils::format;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Gauge, Paragraph};
 use ratatui::Frame;
-use unicode_width::UnicodeWidthChar;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 /// ダイアログを描画
 pub fn render(frame: &mut Frame, area: Rect, dialog: &DialogState) {
@@ -45,6 +48,13 @@ pub fn render(frame: &mut Frame, area: Rect, dialog: &DialogState) {
             is_move,
             focus,
         } => render_copy_move_conflict(frame, area, sources, *index, *is_move, *focus),
+        DialogState::Progress {
+            total_bytes,
+            copied_bytes,
+            current_file,
+            is_move,
+            ..
+        } => render_progress(frame, area, *total_bytes, copied_bytes, current_file, *is_move),
     }
 }
 
@@ -470,6 +480,110 @@ fn render_copy_move_conflict(
         Paragraph::new(hints).alignment(Alignment::Center),
         hint_area,
     );
+}
+
+/// バックグラウンドコピー/移動の進捗ダイアログ描画
+///
+/// `copied_bytes`/`current_file` は実行中のバックグラウンドスレッドと共有しているため、
+/// 描画のたびに最新値を読み出す（App 本体の状態には含まれない）。
+fn render_progress(
+    frame: &mut Frame,
+    area: Rect,
+    total_bytes: u64,
+    copied_bytes: &Arc<AtomicU64>,
+    current_file: &Arc<Mutex<String>>,
+    is_move: bool,
+) {
+    let copied = copied_bytes.load(Ordering::Relaxed).min(total_bytes.max(1));
+    let ratio = if total_bytes == 0 {
+        1.0
+    } else {
+        (copied as f64 / total_bytes as f64).clamp(0.0, 1.0)
+    };
+    let file_name = current_file
+        .lock()
+        .map(|s| s.clone())
+        .unwrap_or_default();
+
+    let verb = if is_move { "移動" } else { "コピー" };
+    let title = format!(" {}中... ", verb);
+
+    let dialog_width = 56u16.min(area.width.saturating_sub(4));
+    let dialog_height = 7u16;
+    let dialog_area = centered_rect(dialog_width, dialog_height, area);
+
+    frame.render_widget(Clear, dialog_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .title_style(theme::dialog_title_style())
+        .border_style(theme::border_style(true));
+    let inner = block.inner(dialog_area);
+    frame.render_widget(block, dialog_area);
+
+    let name_line = Paragraph::new(truncate_middle(&file_name, inner.width as usize))
+        .style(Style::default().fg(theme::FG));
+    frame.render_widget(name_line, Rect::new(inner.x, inner.y, inner.width, 1));
+
+    let gauge = Gauge::default()
+        .gauge_style(Style::default().fg(theme::GREEN).bg(theme::BG_SELECTED))
+        .ratio(ratio)
+        .label(format!(
+            "{}%  {} / {}",
+            (ratio * 100.0).round() as u16,
+            format::format_size(copied),
+            format::format_size(total_bytes)
+        ));
+    frame.render_widget(gauge, Rect::new(inner.x, inner.y + 2, inner.width, 1));
+
+    let hints = Line::from(vec![
+        Span::styled(" Esc ", theme::function_key_style()),
+        Span::styled("キャンセル", theme::function_bar_style()),
+    ]);
+    frame.render_widget(
+        Paragraph::new(hints).alignment(Alignment::Center),
+        Rect::new(inner.x, inner.y + 4, inner.width, 1),
+    );
+}
+
+/// 表示幅ベースで文字列を中央省略する（ファイル名がダイアログ幅を超える場合用）
+fn truncate_middle(s: &str, max_width: usize) -> String {
+    if s.width() <= max_width || max_width < 3 {
+        return s.to_string();
+    }
+    let half = (max_width.saturating_sub(1)) / 2;
+    let head: String = take_by_width(s, half);
+    let tail: String = take_by_width_rev(s, max_width.saturating_sub(1).saturating_sub(half));
+    format!("{}…{}", head, tail)
+}
+
+fn take_by_width(s: &str, max_width: usize) -> String {
+    let mut result = String::new();
+    let mut width = 0;
+    for c in s.chars() {
+        let w = c.width().unwrap_or(0);
+        if width + w > max_width {
+            break;
+        }
+        result.push(c);
+        width += w;
+    }
+    result
+}
+
+fn take_by_width_rev(s: &str, max_width: usize) -> String {
+    let mut result: Vec<char> = Vec::new();
+    let mut width = 0;
+    for c in s.chars().rev() {
+        let w = c.width().unwrap_or(0);
+        if width + w > max_width {
+            break;
+        }
+        result.push(c);
+        width += w;
+    }
+    result.iter().rev().collect()
 }
 
 /// 親領域の中央に配置された Rect を計算

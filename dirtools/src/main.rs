@@ -93,6 +93,8 @@ fn run() -> Result<(), AppError> {
 
     // アプリケーション初期化
     let mut app = App::new(config, left_path, right_path)?;
+    // ネイティブホスト下では初期アクティブペインも通知しておく
+    ime::report_active_pane(app.active_pane);
 
     // メインループ
     let result = run_main_loop(&mut terminal, &mut app);
@@ -170,6 +172,9 @@ fn run_main_loop(
 
         // 外部変更の自動検出＆リフレッシュ
         app.check_external_changes();
+
+        // バックグラウンドコピー/移動の完了確認（大きいファイル操作時のみ該当）
+        app.poll_background_copy();
 
         // 終了判定
         if app.should_quit {
