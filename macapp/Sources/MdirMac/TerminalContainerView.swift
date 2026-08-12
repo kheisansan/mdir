@@ -48,78 +48,19 @@ struct TerminalContainerView: NSViewRepresentable {
             }
         }
 
-        context.coordinator.launchMdir(in: terminal)
+        // ウィンドウを開くたびに、mdir が終了済みなら新しいセッションを立ち上げ直す。
+        // 常駐アプリでは `q` で mdir を抜けてもアプリ自体は生き続けるため。
+        MainWindowManager.shared.willShow = { [weak terminal] in
+            terminal?.relaunchMdirIfNeeded()
+        }
+
+        MdirProcess.start(in: terminal)
         return terminal
     }
 
     func updateNSView(_ nsView: MdirTerminalView, context: Context) {}
 
     final class Coordinator: NSObject, LocalProcessTerminalViewDelegate {
-        private var didLaunch = false
-
-        /// 同梱 `mdir` バイナリを解決して PTY 上で起動する。
-        func launchMdir(in terminal: LocalProcessTerminalView) {
-            guard !didLaunch else { return }
-            didLaunch = true
-
-            let binary = Self.resolveMdirBinary()
-
-            // GUI から起動すると cwd が "/" になるため、ホームを起点にする。
-            FileManager.default.changeCurrentDirectoryPath(NSHomeDirectory())
-
-            var env = Terminal.getEnvironmentVariables(termName: "xterm-256color", trueColor: true)
-            // ネイティブアプリ埋め込みであることを mdir 本体へ伝える。
-            // これを受けて mdir は TIS による入力ソース切替を行わず、
-            // モード変化を OSC で通知するだけになる（IME 制御は Swift 側が担う）。
-            env.append("MDIR_HOST=macapp")
-
-            terminal.startProcess(
-                executable: binary,
-                args: [],
-                environment: env,
-                execName: nil
-            )
-        }
-
-        /// 実行する `mdir` のパスを決定する。
-        /// 1. 環境変数 MDIR_BIN（開発時の上書き用）
-        /// 2. .app バンドル内 Contents/Resources/mdir
-        /// 3. リポジトリの dirtools/target/release/mdir（`swift run` 開発時）
-        /// 4. PATH 上の mdir
-        private static func resolveMdirBinary() -> String {
-            let fm = FileManager.default
-
-            if let override = ProcessInfo.processInfo.environment["MDIR_BIN"],
-               fm.isExecutableFile(atPath: override) {
-                return override
-            }
-
-            if let bundled = Bundle.main.path(forResource: "mdir", ofType: nil),
-               fm.isExecutableFile(atPath: bundled) {
-                return bundled
-            }
-
-            // 開発時フォールバック: 実行ファイルからリポジトリ相対で探す
-            let exeDir = Bundle.main.bundleURL.deletingLastPathComponent()
-            let devCandidates = [
-                exeDir.appendingPathComponent("../../../dirtools/target/release/mdir").path,
-                exeDir.appendingPathComponent("../../../../dirtools/target/release/mdir").path
-            ]
-            for candidate in devCandidates where fm.isExecutableFile(atPath: candidate) {
-                return candidate
-            }
-
-            for dir in ["/usr/local/bin", "/opt/homebrew/bin"] {
-                let candidate = "\(dir)/mdir"
-                if fm.isExecutableFile(atPath: candidate) {
-                    return candidate
-                }
-            }
-
-            // 最終フォールバック（見つからなければ起動時にエラー表示される）
-            return "mdir"
-        }
-
         // MARK: - LocalProcessTerminalViewDelegate
 
         func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
@@ -131,9 +72,11 @@ struct TerminalContainerView: NSViewRepresentable {
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
 
         func processTerminated(source: TerminalView, exitCode: Int32?) {
-            // mdir を抜けたら（:q や q）アプリも終了する
+            // 常駐アプリなので mdir を抜けても（:q や q）アプリは終了させず、
+            // ウィンドウをメニューバーへしまうだけにする。
+            // 次にウィンドウを開くとき MainWindowManager.willShow から mdir が起動し直される。
             DispatchQueue.main.async {
-                NSApplication.shared.terminate(nil)
+                MainWindowManager.shared.hide()
             }
         }
     }

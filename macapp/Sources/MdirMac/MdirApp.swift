@@ -10,6 +10,7 @@ struct MdirApp: App {
             MdirMainView()
                 .environmentObject(controller)
                 .frame(minWidth: 900, minHeight: 520)
+                .background(MainWindowAccessor())
                 .onAppear { controller.installGlobalHotkeys() }
         }
         .windowResizability(.contentMinSize)
@@ -69,6 +70,11 @@ struct MdirApp: App {
                 Button("コピー先 → コピー元（強制上書き）") { controller.runMirror(forward: false) }
                 Divider()
                 Text("グローバルショートカット: ⌃⌥⌘[ / ⌃⌥⌘]")
+            }
+
+            CommandGroup(after: .windowArrangement) {
+                Divider()
+                Button("ウィンドウを隠す（メニューバーに常駐）") { MainWindowManager.shared.hide() }
             }
 
             CommandGroup(replacing: .help) {

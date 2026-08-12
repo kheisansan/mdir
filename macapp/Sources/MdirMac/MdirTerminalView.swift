@@ -33,6 +33,19 @@ final class MdirTerminalView: LocalProcessTerminalView {
 
     private var keyMonitor: Any?
 
+    // MARK: - mdir セッションの再開
+
+    /// mdir 本体プロセスが終了していれば、新しいセッションを起動し直す。
+    /// 常駐アプリでは `q` / `:q` で mdir を抜けてもアプリは生き続けるため、
+    /// 次にウィンドウを開くタイミングでここから復帰させる。
+    /// OSC ハンドラはパーサ側に登録されており端末リセットでも失われない。
+    func relaunchMdirIfNeeded() {
+        guard !process.running else { return }
+        imeAllowed = false
+        getTerminal().resetToInitialState()
+        MdirProcess.start(in: self)
+    }
+
     // MARK: - フォントサイズ
 
     /// OS 標準のフォントサイズ。これを初期値かつ下限とする
